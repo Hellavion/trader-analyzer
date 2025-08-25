@@ -3,16 +3,32 @@ import { NavMain } from '@/components/nav-main';
 import { NavUser } from '@/components/nav-user';
 import { Sidebar, SidebarContent, SidebarFooter, SidebarHeader, SidebarMenu, SidebarMenuButton, SidebarMenuItem } from '@/components/ui/sidebar';
 import { dashboard } from '@/routes';
+import { analysisIndex, exchangesIndex, tradesIndex } from '@/routes/custom';
 import { type NavItem } from '@/types';
 import { Link } from '@inertiajs/react';
-import { BookOpen, Folder, LayoutGrid } from 'lucide-react';
+import { BarChart3, BookOpen, Folder, Layers, LayoutGrid, Settings } from 'lucide-react';
 import AppLogo from './app-logo';
 
 const mainNavItems: NavItem[] = [
     {
-        title: 'Dashboard',
+        title: 'Дашборд',
         href: dashboard(),
         icon: LayoutGrid,
+    },
+    {
+        title: 'Биржи',
+        href: exchangesIndex(),
+        icon: Settings,
+    },
+    {
+        title: 'Сделки',
+        href: tradesIndex(),
+        icon: Layers,
+    },
+    {
+        title: 'Аналитика',
+        href: analysisIndex(),
+        icon: BarChart3,
     },
 ];
 
