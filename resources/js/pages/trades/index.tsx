@@ -5,7 +5,7 @@ import { Input } from '@/components/ui/input';
 import { PlaceholderPattern } from '@/components/ui/placeholder-pattern';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import AppLayout from '@/layouts/app-layout';
-import { tradesIndex } from '@/routes/custom';
+import { index as tradesIndex } from '@/routes/trades';
 import { type BreadcrumbItem, type Trade, type TradeAnalysis } from '@/types';
 import { Head } from '@inertiajs/react';
 import { Calendar, Search, TrendingDown, TrendingUp } from 'lucide-react';
