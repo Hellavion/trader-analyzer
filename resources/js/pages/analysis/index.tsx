@@ -3,7 +3,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import AppLayout from '@/layouts/app-layout';
-import { analysisIndex } from '@/routes/custom';
+import { index as analysisIndex } from '@/routes/analysis';
 import { type BreadcrumbItem } from '@/types';
 import { Head } from '@inertiajs/react';
 import { BarChart3, Calendar, Download, RefreshCw, TrendingDown, TrendingUp } from 'lucide-react';

@@ -3,7 +3,9 @@ import { NavMain } from '@/components/nav-main';
 import { NavUser } from '@/components/nav-user';
 import { Sidebar, SidebarContent, SidebarFooter, SidebarHeader, SidebarMenu, SidebarMenuButton, SidebarMenuItem } from '@/components/ui/sidebar';
 import { dashboard } from '@/routes';
-import { analysisIndex, exchangesIndex, tradesIndex } from '@/routes/custom';
+import { index as analysisIndex } from '@/routes/analysis';
+import { index as exchangesIndex } from '@/routes/exchanges';
+import { index as tradesIndex } from '@/routes/trades';
 import { type NavItem } from '@/types';
 import { Link } from '@inertiajs/react';
 import { BarChart3, BookOpen, Folder, Layers, LayoutGrid, Settings } from 'lucide-react';
@@ -12,22 +14,22 @@ import AppLogo from './app-logo';
 const mainNavItems: NavItem[] = [
     {
         title: 'Дашборд',
-        href: dashboard(),
+        href: dashboard().url,
         icon: LayoutGrid,
     },
     {
         title: 'Биржи',
-        href: exchangesIndex(),
+        href: exchangesIndex().url,
         icon: Settings,
     },
     {
         title: 'Сделки',
-        href: tradesIndex(),
+        href: tradesIndex().url,
         icon: Layers,
     },
     {
         title: 'Аналитика',
-        href: analysisIndex(),
+        href: analysisIndex().url,
         icon: BarChart3,
     },
 ];
@@ -52,7 +54,7 @@ export function AppSidebar() {
                 <SidebarMenu>
                     <SidebarMenuItem>
                         <SidebarMenuButton size="lg" asChild>
-                            <Link href={dashboard()} prefetch>
+                            <Link href={dashboard().url} prefetch>
                                 <AppLogo />
                             </Link>
                         </SidebarMenuButton>

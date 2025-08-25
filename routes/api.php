@@ -1,34 +1,62 @@
 <?php
 
 use App\Http\Controllers\Api\BybitController;
+use App\Http\Controllers\Api\ExchangeController;
+use App\Http\Controllers\Api\TradeController;
+use App\Http\Controllers\Api\AnalysisController;
+use App\Http\Controllers\Api\DashboardController;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
 
 Route::get('/user', function (Request $request) {
     return $request->user();
-})->middleware('auth:sanctum');
+})->middleware(['auth', 'web']);
 
+// API routes with web authentication (for SPA)
 Route::middleware(['auth', 'web'])->group(function () {
     
-    // Exchange management
-    Route::post('exchanges', function (Request $request) {
-        // Temporary handler for exchange connection
-        return response()->json([
-            'success' => true,
-            'message' => 'Биржа успешно подключена!',
-            'data' => [
-                'id' => 1,
-                'exchange' => $request->exchange,
-                'is_active' => true,
-                'created_at' => now()->toISOString(),
-            ]
-        ]);
+    // Exchange Management Routes
+    Route::prefix('exchanges')->group(function () {
+        Route::get('/', [ExchangeController::class, 'index']); // Get all user exchanges
+        Route::get('/supported', [ExchangeController::class, 'getSupportedExchanges']); // Get supported exchanges info
+        Route::post('/test-connection', [ExchangeController::class, 'testConnection']); // Test connection
+        Route::post('/connect', [ExchangeController::class, 'connect']); // Connect to exchange
+        
+        Route::get('/{exchange}', [ExchangeController::class, 'show']); // Get specific exchange info
+        Route::delete('/{exchange}', [ExchangeController::class, 'disconnect']); // Disconnect from exchange
+        Route::delete('/{exchange}/delete', [ExchangeController::class, 'delete']); // Delete exchange connection
+        Route::put('/{exchange}/sync-settings', [ExchangeController::class, 'updateSyncSettings']); // Update sync settings
     });
     
-    // Bybit API routes
-});
-
-Route::middleware('auth:sanctum')->group(function () {
+    // Trade Management Routes
+    Route::prefix('trades')->group(function () {
+        Route::get('/', [TradeController::class, 'index']); // Get trades with filtering
+        Route::get('/stats', [TradeController::class, 'getStats']); // Get trade statistics
+        Route::get('/pnl-chart', [TradeController::class, 'getPnlChart']); // Get P&L chart data
+        Route::post('/sync', [TradeController::class, 'syncAll']); // Sync all exchanges
+        Route::post('/sync/{exchange}', [TradeController::class, 'syncExchange']); // Sync specific exchange
+        Route::get('/{tradeId}', [TradeController::class, 'show']); // Get specific trade details
+    });
+    
+    // Analysis & Market Data Routes
+    Route::prefix('analysis')->group(function () {
+        Route::get('/symbols', [AnalysisController::class, 'getAvailableSymbols']); // Get available symbols
+        Route::get('/market-structure', [AnalysisController::class, 'getMarketStructure']); // Get market structure data
+        Route::get('/order-blocks', [AnalysisController::class, 'getOrderBlocks']); // Get order blocks
+        Route::get('/fvg', [AnalysisController::class, 'getFairValueGaps']); // Get Fair Value Gaps
+        Route::get('/liquidity', [AnalysisController::class, 'getLiquidityLevels']); // Get liquidity levels
+        Route::get('/report', [AnalysisController::class, 'getTradeAnalysisReport']); // Get analysis report
+        Route::post('/collect-market-data', [AnalysisController::class, 'collectMarketData']); // Start market data collection
+    });
+    
+    // Dashboard Routes
+    Route::prefix('dashboard')->group(function () {
+        Route::get('/overview', [DashboardController::class, 'getOverview']); // Get dashboard overview
+        Route::get('/metrics', [DashboardController::class, 'getMetrics']); // Get performance metrics
+        Route::get('/widgets', [DashboardController::class, 'getWidgets']); // Get dashboard widgets
+    });
+    
+    // Legacy Bybit-specific routes (for backward compatibility)
     Route::prefix('bybit')->group(function () {
         // Connection management
         Route::post('test-connection', [BybitController::class, 'testConnection']);
