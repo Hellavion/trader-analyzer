@@ -131,4 +131,19 @@ class UserExchange extends Model
 
         return $this->last_sync_at->diffInHours(now()) >= $hoursThreshold;
     }
+
+    /**
+     * Получает замаскированный API ключ для отображения
+     */
+    public function getMaskedApiKeyAttribute(): string
+    {
+        $credentials = $this->getApiCredentials();
+        $apiKey = $credentials['api_key'] ?? '';
+        
+        if (strlen($apiKey) <= 12) {
+            return $apiKey;
+        }
+        
+        return substr($apiKey, 0, 8) . '...' . substr($apiKey, -4);
+    }
 }
