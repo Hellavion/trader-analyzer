@@ -1,0 +1,70 @@
+/.phpunit.cache
+/bootstrap/ssr
+/node_modules
+/public/build
+/public/hot
+/public/storage
+/resources/js/actions
+/resources/js/routes
+/resources/js/wayfinder
+/storage/*.key
+/storage/pail
+/storage/logs/*.log
+/storage/framework/cache/data/*
+/storage/framework/sessions/*
+/storage/framework/testing/*
+/storage/framework/views/*.php
+/vendor
+.env
+.env.backup
+.env.production
+.phpactor.json
+.phpunit.result.cache
+Homestead.json
+Homestead.yaml
+npm-debug.log
+yarn-error.log
+/auth.json
+/.fleet
+/.idea
+/.nova
+/.vscode
+/.zed
+
+# Database
+/database/database.sqlite
+*.sqlite
+
+# Logs
+*.log
+laravel.log
+
+# OS Files
+.DS_Store
+Thumbs.db
+
+# Composer
+composer.phar
+
+# Node
+*.tgz
+*.tar.gz
+
+# Test coverage
+/coverage
+/build
+
+# Temporary files
+*.tmp
+*.temp
+
+# IDE specific files
+*.swp
+*.swo
+*~
+
+# API keys and secrets (extra protection)
+.env.local
+.env.*.local
+api_keys.json
+secrets.json
