@@ -21,6 +21,7 @@ use Illuminate\Database\Eloquent\Relations\HasOne;
  * @property \Carbon\Carbon $exit_time
  * @property string $external_id
  * @property float $pnl
+ * @property float $unrealized_pnl
  * @property float $fee
  * @property string $status
  */
@@ -38,6 +39,7 @@ class Trade extends Model
         'exit_time',
         'external_id',
         'pnl',
+        'unrealized_pnl',
         'fee',
         'status',
     ];
@@ -47,6 +49,7 @@ class Trade extends Model
         'entry_price' => 'decimal:8',
         'exit_price' => 'decimal:8',
         'pnl' => 'decimal:8',
+        'unrealized_pnl' => 'decimal:8',
         'fee' => 'decimal:8',
         'entry_time' => 'datetime',
         'exit_time' => 'datetime',

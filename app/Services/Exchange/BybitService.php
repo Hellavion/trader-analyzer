@@ -15,7 +15,7 @@ class BybitService
     private string $baseUrl = 'https://api.bybit.com';
     private string $apiKey;
     private string $secret;
-    private int $recWindow = 20000; // Увеличиваем recv_window до 20 секунд
+    private int $recWindow = 60000; // Увеличиваем recv_window до 60 секунд для стабильности
 
     public function __construct(?string $apiKey = null, ?string $secret = null)
     {
@@ -94,6 +94,11 @@ class BybitService
      */
     public function getPositions(string $category = 'linear', ?string $symbol = null): array
     {
+        // Для linear категории нужно получать позиции для всех settleCoin
+        if ($category === 'linear') {
+            return $this->getAllLinearPositions($symbol);
+        }
+
         $params = [
             'category' => $category,
         ];
@@ -109,6 +114,49 @@ class BybitService
         }
 
         return $response['result']['list'] ?? [];
+    }
+
+    /**
+     * Получает все linear позиции для всех settleCoin
+     */
+    private function getAllLinearPositions(?string $symbol = null): array
+    {
+        $allPositions = [];
+        $settleCoinList = ['USDT', 'USDC', 'BTC', 'ETH']; // Основные базовые валюты
+
+        foreach ($settleCoinList as $settleCoin) {
+            try {
+                $params = [
+                    'category' => 'linear',
+                    'settleCoin' => $settleCoin,
+                ];
+
+                if ($symbol) {
+                    $params['symbol'] = $symbol;
+                }
+
+                $response = $this->makePrivateRequest('GET', '/v5/position/list', $params);
+
+                if ($response['retCode'] === 0 && isset($response['result']['list'])) {
+                    $positions = $response['result']['list'];
+                    // Фильтруем только позиции с размером > 0
+                    $activePositions = array_filter($positions, function($pos) {
+                        return abs((float) $pos['size']) > 0;
+                    });
+                    
+                    $allPositions = array_merge($allPositions, $activePositions);
+                }
+
+                // Небольшая пауза между запросами для соблюдения rate limit
+                usleep(100000); // 100ms
+                
+            } catch (\Exception $e) {
+                // Логируем ошибку, но продолжаем с другими settleCoin
+                Log::debug("Failed to fetch positions for settleCoin {$settleCoin}: " . $e->getMessage());
+            }
+        }
+
+        return $allPositions;
     }
 
     /**
@@ -313,9 +361,23 @@ class BybitService
         // Обрабатываем rate limiting
         $this->handleRateLimitFromHeaders($headerString, $httpCode);
 
+        // Временное логирование для отладки
+        if (strlen($body) < 100) {
+            Log::error('Bybit API returned short response', [
+                'body' => $body,
+                'http_code' => $httpCode,
+                'url' => $url
+            ]);
+        }
+        
         $data = json_decode($body, true);
         
         if (json_last_error() !== JSON_ERROR_NONE) {
+            Log::error('Bybit API JSON decode error', [
+                'error' => json_last_error_msg(),
+                'body' => substr($body, 0, 500),
+                'http_code' => $httpCode
+            ]);
             throw new \Exception('Invalid JSON response: ' . json_last_error_msg());
         }
 
