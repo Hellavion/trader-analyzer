@@ -112,6 +112,8 @@ export interface DashboardOverview {
     };
     performance: {
         total_pnl: number;
+        realized_pnl: number;
+        unrealized_pnl: number;
         total_fees: number;
         net_pnl: number;
         win_rate: number;

@@ -252,12 +252,21 @@ class DashboardController extends Controller
         }
 
         $trades = $query->get();
-        $closedTrades = $trades->where('status', 'closed');
+        $closedTrades = $trades->where('status', 'closed')->filter(fn($t) => $t->pnl !== null);
+        $openTrades = $trades->where('status', 'open')->filter(fn($t) => $t->unrealized_pnl !== null);
+
+        // Вычисляем отдельно реализованный и нереализованный PnL
+        $realizedPnl = $closedTrades->sum('pnl');
+        $unrealizedPnl = $openTrades->sum('unrealized_pnl');
+        $totalPnl = $realizedPnl + $unrealizedPnl;
+        $totalFees = $trades->sum('fee');
 
         return [
-            'total_pnl' => round($closedTrades->sum('pnl'), 2),
-            'total_fees' => round($trades->sum('fee'), 2),
-            'net_pnl' => round($closedTrades->sum('pnl') - $trades->sum('fee'), 2),
+            'total_pnl' => round($totalPnl, 2),
+            'realized_pnl' => round($realizedPnl, 2), 
+            'unrealized_pnl' => round($unrealizedPnl, 2),
+            'total_fees' => round($totalFees, 2),
+            'net_pnl' => round($totalPnl - $totalFees, 2),
             'win_rate' => $closedTrades->count() > 0 
                 ? round(($closedTrades->where('pnl', '>', 0)->count() / $closedTrades->count()) * 100, 1)
                 : 0,
@@ -410,7 +419,8 @@ class DashboardController extends Controller
             ->where('entry_time', '>=', now()->subDays(30))
             ->select('symbol')
             ->selectRaw('COUNT(*) as trades_count')
-            ->selectRaw('SUM(pnl) as total_pnl')
+            ->selectRaw('SUM(COALESCE(pnl, 0)) as realized_pnl')
+            ->selectRaw('SUM(COALESCE(unrealized_pnl, 0)) as unrealized_pnl')
             ->selectRaw('SUM(size * entry_price) as volume')
             ->groupBy('symbol')
             ->orderBy('trades_count', 'desc')
@@ -418,10 +428,12 @@ class DashboardController extends Controller
             ->get();
 
         return $symbols->map(function ($symbol) {
+            $totalPnl = ($symbol->realized_pnl ?? 0) + ($symbol->unrealized_pnl ?? 0);
+            
             return [
                 'symbol' => $symbol->symbol,
                 'trades' => $symbol->trades_count,
-                'pnl' => round($symbol->total_pnl, 2),
+                'pnl' => round($totalPnl, 2),
                 'volume' => round($symbol->volume, 2),
             ];
         })->toArray();
@@ -436,15 +448,18 @@ class DashboardController extends Controller
             ->where('entry_time', '>=', now()->subDays(30))
             ->select('exchange')
             ->selectRaw('COUNT(*) as trades_count')
-            ->selectRaw('SUM(pnl) as total_pnl')
+            ->selectRaw('SUM(COALESCE(pnl, 0)) as realized_pnl')
+            ->selectRaw('SUM(COALESCE(unrealized_pnl, 0)) as unrealized_pnl')
             ->groupBy('exchange')
             ->get();
 
         return $exchanges->map(function ($exchange) {
+            $totalPnl = ($exchange->realized_pnl ?? 0) + ($exchange->unrealized_pnl ?? 0);
+            
             return [
                 'exchange' => $exchange->exchange,
                 'trades' => $exchange->trades_count,
-                'pnl' => round($exchange->total_pnl, 2),
+                'pnl' => round($totalPnl, 2),
             ];
         })->toArray();
     }

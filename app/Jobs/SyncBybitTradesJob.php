@@ -66,6 +66,11 @@ class SyncBybitTradesJob implements ShouldQueue
             $this->syncClosedPositions($bybitService, 'spot');
             $this->syncClosedPositions($bybitService, 'inverse');
 
+            // Синхронизируем открытые позиции
+            $this->syncOpenPositions($bybitService, 'linear');
+            $this->syncOpenPositions($bybitService, 'spot');
+            $this->syncOpenPositions($bybitService, 'inverse');
+
             // Запускаем сбор рыночных данных для новых символов
             $this->triggerMarketDataCollection($bybitService);
 
@@ -369,6 +374,119 @@ class SyncBybitTradesJob implements ShouldQueue
     public function backoff(): array
     {
         return [30, 60, 120]; // 30 сек, 1 мин, 2 мин
+    }
+
+    /**
+     * Синхронизирует открытые позиции для определенной категории
+     */
+    private function syncOpenPositions(BybitService $bybitService, string $category): void
+    {
+        try {
+            $positions = $bybitService->getPositions($category);
+
+            $totalSynced = 0;
+
+            foreach ($positions as $bybitPosition) {
+                // Пропускаем позиции с нулевым размером
+                if (abs((float) $bybitPosition['size']) == 0) {
+                    continue;
+                }
+
+                if ($this->syncSingleOpenPosition($bybitPosition)) {
+                    $totalSynced++;
+                }
+            }
+
+            Log::info("Synced open positions for category {$category}", [
+                'user_id' => $this->userExchange->user_id,
+                'category' => $category,
+                'total_synced' => $totalSynced,
+            ]);
+
+        } catch (\Exception $e) {
+            Log::warning("Failed to sync open positions for category {$category}", [
+                'user_id' => $this->userExchange->user_id,
+                'error' => $e->getMessage(),
+            ]);
+        }
+    }
+
+    /**
+     * Синхронизирует одну открытую позицию
+     */
+    private function syncSingleOpenPosition(array $bybitPosition): bool
+    {
+        $symbol = $bybitPosition['symbol'];
+        $size = abs((float) $bybitPosition['size']);
+        $side = (float) $bybitPosition['size'] > 0 ? 'buy' : 'sell';
+
+        // Проверяем, не существует ли уже такая открытая позиция
+        $existingPosition = Trade::where('user_id', $this->userExchange->user_id)
+            ->where('exchange', 'bybit')
+            ->where('symbol', $symbol)
+            ->where('status', 'open')
+            ->first();
+
+        if ($existingPosition) {
+            // Обновляем существующую позицию
+            $existingPosition->update([
+                'size' => $size,
+                'side' => $side,
+                'entry_price' => (float) $bybitPosition['avgPrice'],
+                'unrealized_pnl' => (float) $bybitPosition['unrealisedPnl'],
+                'updated_at' => now(),
+            ]);
+
+            Log::debug('Updated existing open position', [
+                'user_id' => $this->userExchange->user_id,
+                'trade_id' => $existingPosition->id,
+                'symbol' => $symbol,
+                'size' => $size,
+                'unrealized_pnl' => $bybitPosition['unrealisedPnl'],
+            ]);
+
+            return true;
+        }
+
+        // Создаем новую открытую позицию
+        try {
+            Trade::create([
+                'user_id' => $this->userExchange->user_id,
+                'exchange' => 'bybit',
+                'external_id' => 'open_' . $symbol . '_' . time(),
+                'symbol' => $symbol,
+                'side' => $side,
+                'size' => $size,
+                'entry_price' => (float) $bybitPosition['avgPrice'],
+                'entry_time' => now(), // Приблизительное время, т.к. Bybit не возвращает точное время открытия
+                'status' => 'open',
+                'unrealized_pnl' => (float) $bybitPosition['unrealisedPnl'],
+                'fee' => 0, // Комиссия будет учтена при закрытии
+                'created_at' => now(),
+                'updated_at' => now(),
+            ]);
+
+            Log::debug('Created new open position', [
+                'user_id' => $this->userExchange->user_id,
+                'symbol' => $symbol,
+                'side' => $side,
+                'size' => $size,
+                'entry_price' => $bybitPosition['avgPrice'],
+                'unrealized_pnl' => $bybitPosition['unrealisedPnl'],
+            ]);
+
+            return true;
+
+        } catch (\Exception $e) {
+            Log::error('Failed to create open position', [
+                'user_id' => $this->userExchange->user_id,
+                'symbol' => $symbol,
+                'error' => $e->getMessage(),
+                'bybit_position' => $bybitPosition,
+            ]);
+
+            return false;
+        }
     }
 
     /**
