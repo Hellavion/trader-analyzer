@@ -204,6 +204,22 @@ class ExchangeController extends Controller
             $defaultSettings = $this->getDefaultSyncSettings($exchange);
             $syncSettings = array_merge($defaultSettings, $request->input('sync_settings', []));
 
+            // Находим существующее соединение для логирования замены
+            $existingExchange = UserExchange::where('user_id', $user->id)
+                ->where('exchange', $exchange)
+                ->first();
+
+            $oldMaskedKey = null;
+            if ($existingExchange) {
+                $oldMaskedKey = $existingExchange->masked_api_key;
+                
+                Log::info('Replacing existing API credentials', [
+                    'user_id' => $user->id,
+                    'exchange' => $exchange,
+                    'old_masked_key' => $oldMaskedKey,
+                ]);
+            }
+
             $userExchange = UserExchange::updateOrCreate(
                 [
                     'user_id' => $user->id,
@@ -215,12 +231,21 @@ class ExchangeController extends Controller
                 ]
             );
 
-            // Устанавливаем API ключи с шифрованием
+            // Устанавливаем новые API ключи с шифрованием (метод сам очистит старые)
             $userExchange->setApiCredentials([
                 'api_key' => $apiKey,
                 'secret' => $secret,
             ]);
             $userExchange->save();
+            
+            if ($oldMaskedKey) {
+                Log::info('API credentials replacement completed', [
+                    'user_id' => $user->id,
+                    'exchange' => $exchange,
+                    'old_masked_key' => $oldMaskedKey,
+                    'new_masked_key' => $userExchange->masked_api_key,
+                ]);
+            }
 
             // Запускаем первоначальную синхронизацию
             $this->startInitialSync($userExchange);
@@ -349,7 +374,15 @@ class ExchangeController extends Controller
 
         try {
             $exchangeId = $userExchange->id;
+            $maskedKey = $userExchange->masked_api_key;
+            
+            // Удаляем запись (Laravel автоматически очистит связанные данные)
             $userExchange->delete();
+            
+            Log::info('API credentials securely deleted with exchange record', [
+                'exchange_id' => $exchangeId,
+                'masked_key' => $maskedKey,
+            ]);
 
             Log::info('Exchange deleted', [
                 'user_id' => $user->id,
@@ -562,6 +595,373 @@ class ExchangeController extends Controller
         }
 
         return $defaults;
+    }
+
+    /**
+     * Запускает ручную синхронизацию для биржи
+     */
+    public function sync(string $exchange, Request $request): JsonResponse
+    {
+        $validator = Validator::make(['exchange' => $exchange], [
+            'exchange' => ['required', Rule::in(['bybit', 'mexc'])],
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Invalid exchange',
+                'errors' => $validator->errors()
+            ], 422);
+        }
+
+        $user = Auth::user();
+
+        $userExchange = UserExchange::where('user_id', $user->id)
+            ->where('exchange', $exchange)
+            ->first();
+
+        if (!$userExchange) {
+            return response()->json([
+                'success' => false,
+                'message' => ucfirst($exchange) . ' exchange not found'
+            ], 404);
+        }
+
+        if (!$userExchange->isActive()) {
+            return response()->json([
+                'success' => false,
+                'message' => ucfirst($exchange) . ' exchange is not active or has invalid credentials'
+            ], 400);
+        }
+
+        try {
+            // Запускаем синхронизацию с высоким приоритетом
+            $this->startManualSync($userExchange);
+
+            Log::info('Manual sync triggered', [
+                'user_id' => $user->id,
+                'exchange' => $exchange,
+                'exchange_id' => $userExchange->id,
+            ]);
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Synchronization started successfully',
+                'data' => [
+                    'exchange' => $exchange,
+                    'sync_status' => 'queued',
+                    'last_sync_at' => $userExchange->last_sync_at?->toISOString(),
+                    'estimated_completion' => now()->addMinutes(5)->toISOString(),
+                ]
+            ]);
+
+        } catch (\Exception $e) {
+            Log::error('Failed to start manual sync', [
+                'user_id' => $user->id,
+                'exchange' => $exchange,
+                'error' => $e->getMessage(),
+            ]);
+
+            return response()->json([
+                'success' => false,
+                'message' => 'Failed to start synchronization: ' . $e->getMessage()
+            ], 500);
+        }
+    }
+
+    /**
+     * Получает статус синхронизации для биржи
+     */
+    public function syncStatus(string $exchange): JsonResponse
+    {
+        $validator = Validator::make(['exchange' => $exchange], [
+            'exchange' => ['required', Rule::in(['bybit', 'mexc'])],
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Invalid exchange',
+                'errors' => $validator->errors()
+            ], 422);
+        }
+
+        $user = Auth::user();
+
+        $userExchange = UserExchange::where('user_id', $user->id)
+            ->where('exchange', $exchange)
+            ->first();
+
+        if (!$userExchange) {
+            return response()->json([
+                'success' => false,
+                'message' => ucfirst($exchange) . ' exchange not found'
+            ], 404);
+        }
+
+        try {
+            $syncStatus = $this->getSyncStatus($userExchange);
+
+            return response()->json([
+                'success' => true,
+                'data' => $syncStatus
+            ]);
+
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Failed to get sync status: ' . $e->getMessage()
+            ], 500);
+        }
+    }
+
+    /**
+     * Получает статистику синхронизированных данных
+     */
+    public function syncStats(string $exchange): JsonResponse
+    {
+        $validator = Validator::make(['exchange' => $exchange], [
+            'exchange' => ['required', Rule::in(['bybit', 'mexc'])],
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Invalid exchange',
+                'errors' => $validator->errors()
+            ], 422);
+        }
+
+        $user = Auth::user();
+
+        $userExchange = UserExchange::where('user_id', $user->id)
+            ->where('exchange', $exchange)
+            ->first();
+
+        if (!$userExchange) {
+            return response()->json([
+                'success' => false,
+                'message' => ucfirst($exchange) . ' exchange not found'
+            ], 404);
+        }
+
+        try {
+            $stats = $this->getUserSyncStats($user, $exchange);
+
+            return response()->json([
+                'success' => true,
+                'data' => $stats
+            ]);
+
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Failed to get sync statistics: ' . $e->getMessage()
+            ], 500);
+        }
+    }
+
+    /**
+     * Запускает ручную синхронизацию
+     */
+    private function startManualSync(UserExchange $userExchange): void
+    {
+        switch ($userExchange->exchange) {
+            case 'bybit':
+                \App\Jobs\SyncBybitTradesJob::dispatch($userExchange)
+                    ->onQueue('high')
+                    ->delay(now()->addSeconds(5));
+                break;
+
+            case 'mexc':
+                throw new \Exception('MEXC synchronization not yet implemented');
+
+            default:
+                throw new \Exception('Unknown exchange: ' . $userExchange->exchange);
+        }
+    }
+
+    /**
+     * Получает статус синхронизации
+     */
+    private function getSyncStatus(UserExchange $userExchange): array
+    {
+        $lastSync = $userExchange->last_sync_at;
+        $needsSync = $userExchange->needsSync();
+        
+        $status = 'idle';
+        if ($needsSync && !$lastSync) {
+            $status = 'never_synced';
+        } elseif ($needsSync) {
+            $status = 'needs_sync';
+        } elseif ($lastSync && $lastSync->diffInMinutes(now()) < 30) {
+            $status = 'recently_synced';
+        }
+
+        return [
+            'exchange' => $userExchange->exchange,
+            'status' => $status,
+            'is_active' => $userExchange->is_active,
+            'has_valid_credentials' => $userExchange->hasValidCredentials(),
+            'last_sync_at' => $lastSync?->toISOString(),
+            'next_scheduled_sync' => $this->getNextScheduledSync($userExchange),
+            'sync_interval_hours' => $userExchange->sync_settings['sync_interval_hours'] ?? 1,
+            'auto_sync_enabled' => $userExchange->sync_settings['auto_sync'] ?? true,
+            'needs_sync' => $needsSync,
+            'sync_health' => $this->assessSyncHealth($userExchange),
+        ];
+    }
+
+    /**
+     * Получает статистику синхронизации пользователя
+     */
+    private function getUserSyncStats($user, string $exchange): array
+    {
+        $trades = \App\Models\Trade::where('user_id', $user->id)
+            ->where('exchange', $exchange)
+            ->get();
+
+        $totalTrades = $trades->count();
+        $closedTrades = $trades->where('status', 'closed')->count();
+        $openTrades = $trades->where('status', 'open')->count();
+        
+        $recentTrades = $trades->where('entry_time', '>=', now()->subDays(30));
+        $uniqueSymbols = $trades->pluck('symbol')->unique();
+
+        $totalPnL = $trades->where('status', 'closed')->sum('pnl');
+        $totalFees = $trades->sum('fee');
+
+        // Статистика рыночных данных
+        $marketDataStats = \App\Models\MarketStructure::whereIn('symbol', $uniqueSymbols)
+            ->selectRaw('symbol, COUNT(*) as records_count, MAX(timestamp) as latest_data')
+            ->groupBy('symbol')
+            ->get();
+
+        return [
+            'trades' => [
+                'total' => $totalTrades,
+                'closed' => $closedTrades,
+                'open' => $openTrades,
+                'recent_30d' => $recentTrades->count(),
+                'unique_symbols' => $uniqueSymbols->count(),
+                'symbols' => $uniqueSymbols->toArray(),
+            ],
+            'performance' => [
+                'total_pnl' => round($totalPnL, 2),
+                'total_fees' => round($totalFees, 2),
+                'net_pnl' => round($totalPnL - $totalFees, 2),
+                'win_rate' => $closedTrades > 0 ? 
+                    round($trades->where('status', 'closed')->where('pnl', '>', 0)->count() / $closedTrades * 100, 1) : 0,
+            ],
+            'market_data' => [
+                'symbols_with_data' => $marketDataStats->count(),
+                'total_records' => $marketDataStats->sum('records_count'),
+                'coverage' => $uniqueSymbols->count() > 0 ? 
+                    round($marketDataStats->count() / $uniqueSymbols->count() * 100, 1) : 0,
+                'latest_update' => $marketDataStats->max('latest_data'),
+            ],
+            'sync_summary' => [
+                'first_trade' => $trades->min('entry_time'),
+                'last_trade' => $trades->max('entry_time'),
+                'data_range_days' => $trades->count() > 1 ? 
+                    now()->diffInDays($trades->min('entry_time')) : 0,
+            ],
+        ];
+    }
+
+    /**
+     * Получает время следующей запланированной синхронизации
+     */
+    private function getNextScheduledSync(UserExchange $userExchange): ?string
+    {
+        if (!($userExchange->sync_settings['auto_sync'] ?? true)) {
+            return null;
+        }
+
+        $intervalHours = $userExchange->sync_settings['sync_interval_hours'] ?? 1;
+        $lastSync = $userExchange->last_sync_at ?? $userExchange->created_at;
+        
+        return $lastSync->addHours($intervalHours)->toISOString();
+    }
+
+    /**
+     * Оценивает здоровье синхронизации
+     */
+    private function assessSyncHealth(UserExchange $userExchange): array
+    {
+        $health = 'good';
+        $issues = [];
+        $score = 100;
+
+        // Проверка активности
+        if (!$userExchange->is_active) {
+            $health = 'critical';
+            $issues[] = 'Exchange connection is inactive';
+            $score -= 50;
+        }
+
+        // Проверка валидности ключей
+        if (!$userExchange->hasValidCredentials()) {
+            $health = 'critical';
+            $issues[] = 'Invalid API credentials';
+            $score -= 30;
+        }
+
+        // Проверка последней синхронизации
+        if ($userExchange->last_sync_at) {
+            $hoursSinceSync = $userExchange->last_sync_at->diffInHours(now());
+            
+            if ($hoursSinceSync > 24) {
+                $health = 'poor';
+                $issues[] = 'No synchronization for over 24 hours';
+                $score -= 20;
+            } elseif ($hoursSinceSync > 6) {
+                if ($health === 'good') $health = 'warning';
+                $issues[] = 'Synchronization overdue';
+                $score -= 10;
+            }
+        } else {
+            $health = 'warning';
+            $issues[] = 'Never synchronized';
+            $score -= 15;
+        }
+
+        return [
+            'status' => $health,
+            'score' => max(0, $score),
+            'issues' => $issues,
+            'recommendations' => $this->getSyncRecommendations($issues),
+        ];
+    }
+
+    /**
+     * Получает рекомендации по улучшению синхронизации
+     */
+    private function getSyncRecommendations(array $issues): array
+    {
+        $recommendations = [];
+
+        foreach ($issues as $issue) {
+            switch ($issue) {
+                case 'Exchange connection is inactive':
+                    $recommendations[] = 'Activate the exchange connection in settings';
+                    break;
+                case 'Invalid API credentials':
+                    $recommendations[] = 'Check and update your API keys';
+                    break;
+                case 'No synchronization for over 24 hours':
+                    $recommendations[] = 'Run manual synchronization or check auto-sync settings';
+                    break;
+                case 'Synchronization overdue':
+                    $recommendations[] = 'Consider reducing sync interval for more frequent updates';
+                    break;
+                case 'Never synchronized':
+                    $recommendations[] = 'Run your first synchronization to import trading data';
+                    break;
+            }
+        }
+
+        return array_unique($recommendations);
     }
 
     /**

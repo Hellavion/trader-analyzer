@@ -52,7 +52,28 @@ class UserExchange extends Model
      */
     public function setApiCredentials(array $credentials): void
     {
+        // Сначала очищаем старые ключи если они есть
+        $this->clearApiCredentials();
+        
         $this->api_credentials_encrypted = Crypt::encryptString(json_encode($credentials));
+    }
+
+    /**
+     * Безопасно очищает зашифрованные API ключи
+     */
+    public function clearApiCredentials(): void
+    {
+        if ($this->api_credentials_encrypted) {
+            // Затираем строку нулями для безопасности
+            $oldLength = strlen($this->api_credentials_encrypted);
+            $this->api_credentials_encrypted = str_repeat('0', $oldLength);
+            $this->api_credentials_encrypted = null;
+            
+            // Принуждаем сборку мусора
+            if (function_exists('gc_collect_cycles')) {
+                gc_collect_cycles();
+            }
+        }
     }
 
     /**

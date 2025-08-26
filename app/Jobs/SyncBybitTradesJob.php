@@ -56,10 +56,18 @@ class SyncBybitTradesJob implements ShouldQueue
             $credentials = $this->userExchange->getApiCredentials();
             $bybitService = new BybitService($credentials['api_key'], $credentials['secret']);
 
-            // Синхронизируем сделки для разных категорий
+            // Синхронизируем исполнения сделок для разных категорий
             $this->syncTradesForCategory($bybitService, 'linear');
             $this->syncTradesForCategory($bybitService, 'spot');
             $this->syncTradesForCategory($bybitService, 'inverse');
+
+            // Синхронизируем закрытые позиции для более точного анализа
+            $this->syncClosedPositions($bybitService, 'linear');
+            $this->syncClosedPositions($bybitService, 'spot');
+            $this->syncClosedPositions($bybitService, 'inverse');
+
+            // Запускаем сбор рыночных данных для новых символов
+            $this->triggerMarketDataCollection($bybitService);
 
             // Обновляем время последней синхронизации
             $this->userExchange->updateLastSync();
@@ -111,6 +119,11 @@ class SyncBybitTradesJob implements ShouldQueue
             }
 
             foreach ($trades as $bybitTrade) {
+                // Пропускаем записи о фандинге и других не-торговых операциях
+                if (($bybitTrade['execType'] ?? '') !== 'Trade') {
+                    continue;
+                }
+                
                 if ($this->syncSingleTrade($bybitTrade)) {
                     $totalSynced++;
                 }
@@ -253,10 +266,140 @@ class SyncBybitTradesJob implements ShouldQueue
     }
 
     /**
+     * Синхронизирует закрытые позиции для более точного анализа
+     */
+    private function syncClosedPositions(BybitService $bybitService, string $category): void
+    {
+        try {
+            $closedPnLs = $bybitService->getClosedPnL(
+                category: $category,
+                startTime: $this->startTime,
+                endTime: $this->endTime,
+                limit: 50
+            );
+
+            $totalSynced = 0;
+
+            foreach ($closedPnLs as $bybitPnL) {
+                if ($this->syncClosedPosition($bybitService, $bybitPnL)) {
+                    $totalSynced++;
+                }
+            }
+
+            Log::info("Synced closed positions for category {$category}", [
+                'user_id' => $this->userExchange->user_id,
+                'category' => $category,
+                'total_synced' => $totalSynced,
+            ]);
+
+        } catch (\Exception $e) {
+            Log::warning("Failed to sync closed positions for category {$category}", [
+                'user_id' => $this->userExchange->user_id,
+                'error' => $e->getMessage(),
+            ]);
+        }
+    }
+
+    /**
+     * Синхронизирует одну закрытую позицию
+     */
+    private function syncClosedPosition(BybitService $bybitService, array $bybitPnL): bool
+    {
+        $orderId = $bybitPnL['orderId'];
+
+        // Проверяем, не существует ли уже такая позиция
+        $existingTrade = Trade::where('user_id', $this->userExchange->user_id)
+            ->where('exchange', 'bybit')
+            ->where('external_id', $orderId)
+            ->first();
+
+        if ($existingTrade) {
+            // Обновляем существующую сделку данными о закрытии, если они отсутствуют
+            if (!$existingTrade->exit_price && $bybitPnL['avgExitPrice'] > 0) {
+                $existingTrade->update([
+                    'exit_price' => (float) $bybitPnL['avgExitPrice'],
+                    'exit_time' => Carbon::createFromTimestampMs($bybitPnL['updatedTime']),
+                    'pnl' => (float) $bybitPnL['closedPnl'],
+                    'status' => 'closed',
+                ]);
+
+                Log::debug('Updated trade with closing data', [
+                    'user_id' => $this->userExchange->user_id,
+                    'trade_id' => $existingTrade->id,
+                    'pnl' => $bybitPnL['closedPnl'],
+                ]);
+
+                return true;
+            }
+            
+            return false;
+        }
+
+        // Создаем новую сделку из закрытой позиции
+        $tradeData = $bybitService->transformClosedPnLData($bybitPnL);
+        $tradeData['user_id'] = $this->userExchange->user_id;
+
+        try {
+            Trade::create($tradeData);
+            
+            Log::debug('Created new trade from closed position', [
+                'user_id' => $this->userExchange->user_id,
+                'external_id' => $orderId,
+                'symbol' => $tradeData['symbol'],
+                'pnl' => $tradeData['pnl'],
+            ]);
+
+            return true;
+
+        } catch (\Exception $e) {
+            Log::error('Failed to create trade from closed position', [
+                'user_id' => $this->userExchange->user_id,
+                'external_id' => $orderId,
+                'error' => $e->getMessage(),
+                'bybit_pnl' => $bybitPnL,
+            ]);
+
+            return false;
+        }
+    }
+
+    /**
      * Определяет задержку между повторными попытками
      */
     public function backoff(): array
     {
         return [30, 60, 120]; // 30 сек, 1 мин, 2 мин
+    }
+
+    /**
+     * Запускает сбор рыночных данных для торгуемых пользователем символов
+     */
+    private function triggerMarketDataCollection(BybitService $bybitService): void
+    {
+        try {
+            // Получаем уникальные символы из синхронизированных сделок
+            $userSymbols = Trade::where('user_id', $this->userExchange->user_id)
+                ->where('entry_time', '>=', now()->subDays(7)) // Символы за последнюю неделю
+                ->distinct()
+                ->pluck('symbol')
+                ->toArray();
+
+            if (!empty($userSymbols)) {
+                // Запускаем job для сбора данных по символам пользователя с задержкой
+                CollectBybitMarketDataJob::dispatch($userSymbols)
+                    ->delay(now()->addMinutes(2)); // Задержка чтобы не перегружать API
+
+                Log::info('Market data collection triggered for user symbols', [
+                    'user_id' => $this->userExchange->user_id,
+                    'symbols' => $userSymbols
+                ]);
+            }
+
+        } catch (\Exception $e) {
+            Log::warning('Failed to trigger market data collection', [
+                'user_id' => $this->userExchange->user_id,
+                'error' => $e->getMessage()
+            ]);
+        }
     }
 }
