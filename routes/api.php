@@ -26,6 +26,11 @@ Route::middleware(['auth', 'web'])->group(function () {
         Route::delete('/{exchange}', [ExchangeController::class, 'disconnect']); // Disconnect from exchange
         Route::delete('/{exchange}/delete', [ExchangeController::class, 'delete']); // Delete exchange connection
         Route::put('/{exchange}/sync-settings', [ExchangeController::class, 'updateSyncSettings']); // Update sync settings
+        
+        // Synchronization management
+        Route::post('/{exchange}/sync', [ExchangeController::class, 'sync']); // Trigger manual sync
+        Route::get('/{exchange}/sync/status', [ExchangeController::class, 'syncStatus']); // Get sync status
+        Route::get('/{exchange}/sync/stats', [ExchangeController::class, 'syncStats']); // Get sync statistics
     });
     
     // Trade Management Routes

@@ -15,7 +15,7 @@ class BybitService
     private string $baseUrl = 'https://api.bybit.com';
     private string $apiKey;
     private string $secret;
-    private int $recWindow = 5000;
+    private int $recWindow = 20000; // Увеличиваем recv_window до 20 секунд
 
     public function __construct(?string $apiKey = null, ?string $secret = null)
     {
@@ -112,6 +112,37 @@ class BybitService
     }
 
     /**
+     * Получает закрытые PnL записи (для анализа завершенных позиций)
+     */
+    public function getClosedPnL(string $category = 'linear', ?string $symbol = null, ?Carbon $startTime = null, ?Carbon $endTime = null, int $limit = 50): array
+    {
+        $params = [
+            'category' => $category,
+            'limit' => $limit,
+        ];
+
+        if ($symbol) {
+            $params['symbol'] = $symbol;
+        }
+
+        if ($startTime) {
+            $params['startTime'] = $startTime->getTimestampMs();
+        }
+
+        if ($endTime) {
+            $params['endTime'] = $endTime->getTimestampMs();
+        }
+
+        $response = $this->makePrivateRequest('GET', '/v5/position/closed-pnl', $params);
+
+        if ($response['retCode'] !== 0) {
+            throw new \Exception('Failed to fetch closed PnL: ' . $response['retMsg']);
+        }
+
+        return $response['result']['list'] ?? [];
+    }
+
+    /**
      * Получает баланс кошелька
      */
     public function getWalletBalance(string $accountType = 'UNIFIED'): array
@@ -181,18 +212,18 @@ class BybitService
      */
     private function makePrivateRequest(string $method, string $endpoint, array $params = []): array
     {
-        $timestamp = (string) (microtime(true) * 1000);
+        $timestamp = (string) round(microtime(true) * 1000);
         $queryString = http_build_query($params);
         
         $signature = $this->generateSignature($timestamp, $method, $endpoint, $queryString);
 
         $headers = [
-            'X-BAPI-API-KEY' => $this->apiKey,
-            'X-BAPI-SIGN' => $signature,
-            'X-BAPI-SIGN-TYPE' => '2',
-            'X-BAPI-TIMESTAMP' => $timestamp,
-            'X-BAPI-RECV-WINDOW' => (string) $this->recWindow,
-            'Content-Type' => 'application/json',
+            'X-BAPI-API-KEY: ' . $this->apiKey,
+            'X-BAPI-SIGN: ' . $signature,
+            'X-BAPI-SIGN-TYPE: 2',
+            'X-BAPI-TIMESTAMP: ' . $timestamp,
+            'X-BAPI-RECV-WINDOW: ' . $this->recWindow,
+            'Content-Type: application/json',
         ];
 
         $url = $this->baseUrl . $endpoint;
@@ -201,17 +232,7 @@ class BybitService
             $url .= '?' . $queryString;
         }
 
-        $response = Http::withHeaders($headers)->timeout(30);
-
-        if ($method === 'POST') {
-            $response = $response->post($url, $params);
-        } else {
-            $response = $response->get($url);
-        }
-
-        $this->handleRateLimit($response);
-
-        return $response->json();
+        return $this->makeCurlRequest($method, $url, $headers, $params);
     }
 
     /**
@@ -226,11 +247,9 @@ class BybitService
             $url .= '?' . $queryString;
         }
 
-        $response = Http::timeout(30)->get($url);
+        $headers = ['Content-Type: application/json'];
         
-        $this->handleRateLimit($response);
-
-        return $response->json();
+        return $this->makeCurlRequest($method, $url, $headers, []);
     }
 
     /**
@@ -250,19 +269,75 @@ class BybitService
     }
 
     /**
-     * Обрабатывает ограничения по частоте запросов
+     * Выполняет cURL запрос
      */
-    private function handleRateLimit(Response $response): void
+    private function makeCurlRequest(string $method, string $url, array $headers, array $params = []): array
     {
-        $rateLimitRemaining = $response->header('X-Bapi-Limit-Status');
+        $ch = curl_init();
         
-        if ($rateLimitRemaining && (int) $rateLimitRemaining < 10) {
-            Log::warning('Bybit API rate limit approaching', [
-                'remaining' => $rateLimitRemaining
-            ]);
+        curl_setopt_array($ch, [
+            CURLOPT_URL => $url,
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_TIMEOUT => 60,
+            CURLOPT_CONNECTTIMEOUT => 30,
+            CURLOPT_HTTPHEADER => $headers,
+            CURLOPT_SSL_VERIFYPEER => false, // Временно для тестирования
+            CURLOPT_SSL_VERIFYHOST => false,
+            CURLOPT_USERAGENT => 'TraderAnalyzer/1.0',
+            CURLOPT_HEADER => true,
+            CURLOPT_DNS_CACHE_TIMEOUT => 300,
+        ]);
+
+        if ($method === 'POST') {
+            curl_setopt($ch, CURLOPT_POST, true);
+            if (!empty($params)) {
+                curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($params));
+            }
         }
 
-        if ($response->status() === 429) {
+        $response = curl_exec($ch);
+        
+        if (curl_error($ch)) {
+            $error = curl_error($ch);
+            curl_close($ch);
+            throw new \Exception('cURL error: ' . $error);
+        }
+
+        $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        $headerSize = curl_getinfo($ch, CURLINFO_HEADER_SIZE);
+        curl_close($ch);
+
+        $headerString = substr($response, 0, $headerSize);
+        $body = substr($response, $headerSize);
+
+        // Обрабатываем rate limiting
+        $this->handleRateLimitFromHeaders($headerString, $httpCode);
+
+        $data = json_decode($body, true);
+        
+        if (json_last_error() !== JSON_ERROR_NONE) {
+            throw new \Exception('Invalid JSON response: ' . json_last_error_msg());
+        }
+
+        return $data;
+    }
+
+    /**
+     * Обрабатывает ограничения по частоте запросов из заголовков
+     */
+    private function handleRateLimitFromHeaders(string $headers, int $httpCode): void
+    {
+        if (preg_match('/X-Bapi-Limit-Status:\s*(\d+)/i', $headers, $matches)) {
+            $rateLimitRemaining = (int) $matches[1];
+            
+            if ($rateLimitRemaining < 10) {
+                Log::warning('Bybit API rate limit approaching', [
+                    'remaining' => $rateLimitRemaining
+                ]);
+            }
+        }
+
+        if ($httpCode === 429) {
             throw new \Exception('Bybit API rate limit exceeded');
         }
     }
@@ -299,5 +374,78 @@ class BybitService
             'exchange' => 'bybit',
             'status' => 'open',
         ];
+    }
+
+    /**
+     * Преобразует данные закрытого PnL в формат приложения
+     */
+    public function transformClosedPnLData(array $bybitPnL): array
+    {
+        return [
+            'external_id' => $bybitPnL['orderId'],
+            'symbol' => $bybitPnL['symbol'],
+            'side' => strtolower($bybitPnL['side']),
+            'size' => (float) $bybitPnL['qty'],
+            'entry_price' => (float) $bybitPnL['avgEntryPrice'],
+            'exit_price' => (float) $bybitPnL['avgExitPrice'],
+            'entry_time' => Carbon::createFromTimestampMs($bybitPnL['createdTime']),
+            'exit_time' => Carbon::createFromTimestampMs($bybitPnL['updatedTime']),
+            'pnl' => (float) $bybitPnL['closedPnl'],
+            'fee' => abs((float) $bybitPnL['totalFee']),
+            'exchange' => 'bybit',
+            'status' => 'closed',
+        ];
+    }
+
+    /**
+     * Получает активные торговые символы из позиций и истории
+     */
+    public function getActiveSymbols(string $category = 'linear'): array
+    {
+        $symbols = [];
+
+        try {
+            // Получаем символы из открытых позиций
+            $positions = $this->getPositions($category);
+            foreach ($positions as $position) {
+                if ((float) $position['size'] > 0) {
+                    $symbols[] = $position['symbol'];
+                }
+            }
+
+            // Получаем символы из недавней торговой истории
+            $recentTrades = $this->getTradingHistory($category, null, Carbon::now()->subDays(7), null, 100);
+            foreach ($recentTrades as $trade) {
+                $symbols[] = $trade['symbol'];
+            }
+
+            return array_unique($symbols);
+
+        } catch (\Exception $e) {
+            Log::warning('Failed to get active symbols', ['error' => $e->getMessage()]);
+            return [];
+        }
+    }
+
+    /**
+     * Проверяет статус API соединения
+     */
+    public function getApiStatus(): array
+    {
+        try {
+            $response = $this->makePublicRequest('GET', '/v5/market/time', []);
+            
+            return [
+                'is_connected' => $response['retCode'] === 0,
+                'server_time' => $response['result']['timeSecond'] ?? null,
+                'message' => $response['retMsg'] ?? 'API accessible'
+            ];
+        } catch (\Exception $e) {
+            return [
+                'is_connected' => false,
+                'server_time' => null,
+                'message' => $e->getMessage()
+            ];
+        }
     }
 }
