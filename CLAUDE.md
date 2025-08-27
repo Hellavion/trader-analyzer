@@ -8,8 +8,16 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - `composer run dev` - Start development environment (server + queue + Vite)
 - `composer run test` - Run test suite
 - `php artisan serve` - Start Laravel development server  
-- `php artisan queue:listen --tries=1` - Start queue worker
+- `php artisan queue:work --daemon --tries=3` - Start queue worker (рекомендуется для продакшена)
+- `php artisan queue:listen --tries=1` - Start queue worker (для разработки)
 - `php artisan test` - Run PHPUnit/Pest tests
+- `php artisan sync:all-users` - Manual sync all users data
+- `php artisan sync:all-users --force` - Force sync even recently synced users
+
+### Synchronization Commands
+- `start-queue-worker.bat` - Windows batch file to start queue worker as service
+- `start-scheduler.bat` - Windows batch file to start Laravel scheduler
+- `php artisan schedule:run` - Run scheduled tasks once (normally runs every minute via cron/scheduler)
 
 ### Frontend Commands  
 - `npm run dev` - Start Vite development server

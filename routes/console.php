@@ -10,7 +10,7 @@ Artisan::command('inspire', function () {
 
 // Schedule automated data synchronization and cleanup
 Schedule::command('sync:all-users')
-    ->hourly()
+    ->everyTenMinutes()
     ->between('6:00', '23:00') // Только в активное время
     ->name('sync-all-users')
     ->withoutOverlapping(120); // Максимум 2 часа на выполнение
@@ -24,3 +24,9 @@ Schedule::command('cleanup:old-data')
     ->weeklyOn(1, '03:00') // Каждый понедельник в 3:00
     ->name('weekly-cleanup')
     ->withoutOverlapping(60);
+
+// Автоматический старт queue worker
+Schedule::command('queue:work --timeout=300 --tries=3 --sleep=3')
+    ->everyMinute()
+    ->name('queue-worker')
+    ->withoutOverlapping(600);

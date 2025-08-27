@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { dashboardService } from '@/services/dashboard';
-import { exchangeService } from '@/services/exchange';
+import { syncService } from '@/services/sync-service';
 import type { DashboardOverview, DashboardMetrics, DashboardWidgets } from '@/types';
 
 interface UseDashboardOptions {
@@ -67,34 +67,22 @@ export function useDashboard(options: UseDashboardOptions = {}) {
         fetchDashboardData();
     }, [fetchDashboardData]);
 
-    // Auto sync with exchange and refresh data silently
+    // Auto refresh data silently (без синхронизации с биржей - это делает scheduler)
     useEffect(() => {
         if (!autoRefresh) return;
 
         const interval = setInterval(async () => {
             try {
-                console.log('Background sync with exchange started...');
+                console.log('Background dashboard refresh started...');
+                    
+                // Тихо обновляем данные Dashboard
+                await fetchDashboardData(true); // silent = true
                 
-                // 1. Синхронизируем данные с биржей
-                const syncResult = await exchangeService.syncAll();
-                
-                if (syncResult.success) {
-                    console.log(`Background sync: ${syncResult.message}`);
-                    
-                    // 2. Ждем немного для завершения синхронизации job'ов
-                    await new Promise(resolve => setTimeout(resolve, 3000));
-                    
-                    // 3. Тихо обновляем данные Dashboard
-                    await fetchDashboardData(true); // silent = true
-                    
-                    console.log('Background sync completed successfully');
-                } else {
-                    console.warn('Background sync partially failed:', syncResult.message);
-                }
+                console.log('Background dashboard refresh completed');
                 
             } catch (error) {
-                console.error('Background sync failed:', error);
-                // Не показываем ошибки пользователю при фоновой синхронизации
+                console.error('Background dashboard refresh failed:', error);
+                // Не показываем ошибки пользователю при фоновом обновлении
             }
         }, refreshInterval);
 
@@ -107,22 +95,26 @@ export function useDashboard(options: UseDashboardOptions = {}) {
             
             console.log('Manual sync with exchange started...');
             
-            // 1. Синхронизируем данные с биржей
-            const syncResult = await exchangeService.syncAll();
+            // 1. Запускаем джобу синхронизации с биржей  
+            const syncResult = await syncService.triggerManualSync();
             
-            if (syncResult.success) {
+            if (syncResult.success && syncResult.sync_timestamps) {
                 console.log(`Manual sync: ${syncResult.message}`);
                 
-                // 2. Ждем немного для завершения синхронизации job'ов
-                await new Promise(resolve => setTimeout(resolve, 3000));
+                // 2. Ждем завершения синхронизации динамически через polling
+                console.log('Waiting for sync completion...');
+                await syncService.waitForSyncCompletion(syncResult.sync_timestamps);
+                
+                // 3. Обновляем данные Dashboard один раз после завершения
+                await fetchDashboardData();
+                
+                console.log('Manual sync completed successfully');
+                
             } else {
                 console.warn('Manual sync failed:', syncResult.message);
+                // Даже если синхронизация не удалась, обновляем UI
+                await fetchDashboardData();
             }
-            
-            // 3. Обновляем данные Dashboard
-            await fetchDashboardData();
-            
-            console.log('Manual sync completed successfully');
             
         } catch (error) {
             console.error('Manual sync failed:', error);
