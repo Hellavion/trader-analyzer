@@ -73,7 +73,7 @@ export default function Dashboard() {
                         <h1 className="text-2xl font-bold">Торговый дашборд</h1>
                         <p className="text-muted-foreground">
                             Обзор вашей торговой производительности и активности
-                            <span className="ml-2 text-xs opacity-60">• Автосинхронизация каждые 60 сек</span>
+                            <span className="ml-2 text-xs opacity-60">• Автосинхронизация каждые 10 минут</span>
                         </p>
                     </div>
                     <button 
