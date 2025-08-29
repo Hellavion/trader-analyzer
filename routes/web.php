@@ -9,7 +9,7 @@ Route::get('/', function () {
 
 Route::middleware(['auth', 'verified'])->group(function () {
     Route::get('dashboard', function () {
-        return Inertia::render('dashboard');
+        return redirect()->route('analysis.index');
     })->name('dashboard');
 
     Route::get('exchanges', function () {
@@ -36,6 +36,33 @@ Route::middleware(['auth', 'verified'])->group(function () {
     Route::get('analysis', function () {
         return Inertia::render('analysis/index');
     })->name('analysis.index');
+
+    // Тестовая страница для проверки real-time WebSocket
+    Route::get('test-realtime', function () {
+        $existingTrades = \App\Models\Trade::where('user_id', 2)
+            ->orderBy('created_at', 'desc')
+            ->limit(20)
+            ->get()
+            ->map(function ($trade) {
+                return [
+                    'id' => $trade->id,
+                    'symbol' => $trade->symbol,
+                    'side' => $trade->side,
+                    'size' => $trade->size,
+                    'entry_price' => $trade->entry_price,
+                    'exit_price' => $trade->exit_price,
+                    'pnl' => $trade->pnl,
+                    'fee' => $trade->fee,
+                    'entry_time' => $trade->entry_time?->toISOString(),
+                    'exit_time' => $trade->exit_time?->toISOString(),
+                    'created_at' => $trade->created_at->toISOString(),
+                ];
+            });
+
+        return Inertia::render('TestRealtime', [
+            'existingTrades' => $existingTrades
+        ]);
+    })->name('test.realtime');
 
     // Exchange management
     Route::post('exchanges', function (Illuminate\Http\Request $request) {

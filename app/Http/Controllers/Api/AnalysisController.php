@@ -433,6 +433,7 @@ class AnalysisController extends Controller
                 'recommendations' => $this->getRecommendations($tradesWithAnalysis),
                 'market_structure_insights' => $this->getMarketStructureInsights($tradesWithAnalysis),
                 'performance_correlation' => $this->getPerformanceCorrelation($tradesWithAnalysis),
+                'pnl_timeline' => $this->getPnlTimeline($trades, $request->input('period', '30d')),
             ];
 
             return response()->json([
@@ -696,6 +697,104 @@ class AnalysisController extends Controller
             'average' => $qualities->filter(fn($q) => $q >= 4 && $q < 6)->count(),
             'poor' => $qualities->filter(fn($q) => $q < 4)->count(),
         ];
+    }
+
+    /**
+     * Получает временную линию P&L для графика
+     */
+    private function getPnlTimeline($trades, string $period): array
+    {
+        if ($trades->isEmpty()) {
+            return [];
+        }
+
+        // Сортируем сделки по времени входа
+        $sortedTrades = $trades->sortBy('entry_time');
+        
+        // Определяем формат периодов на основе выбранного периода
+        $format = match ($period) {
+            '7d' => 'Y-m-d', // По дням для 7 дней
+            '30d' => 'Y-m-d', // По дням для 30 дней  
+            '90d' => 'Y-W', // По неделям для 90 дней
+            '1y' => 'Y-m', // По месяцам для года
+            'all' => 'Y-m', // По месяцам для всего времени
+            default => 'Y-m-d'
+        };
+
+        $labelFormat = match ($period) {
+            '7d' => 'M j', // "Jan 15"
+            '30d' => 'M j', // "Jan 15"
+            '90d' => '\WW Y', // "W15 2024"
+            '1y' => 'M Y', // "Jan 2024"
+            'all' => 'M Y', // "Jan 2024"
+            default => 'M j'
+        };
+
+        // Группируем сделки по периодам и суммируем P&L
+        $groupedData = [];
+        $runningPnl = 0;
+
+        foreach ($sortedTrades as $trade) {
+            $periodKey = $trade->entry_time->format($format);
+            $label = $trade->entry_time->format($labelFormat);
+            
+            if (!isset($groupedData[$periodKey])) {
+                $groupedData[$periodKey] = [
+                    'period' => $label,
+                    'pnl' => 0,
+                    'trades' => 0,
+                    'date' => $trade->entry_time->format('Y-m-d')
+                ];
+            }
+            
+            $groupedData[$periodKey]['pnl'] += (float) $trade->pnl;
+            $groupedData[$periodKey]['trades']++;
+        }
+
+        // Конвертируем в массив и сортируем по дате
+        $timeline = array_values($groupedData);
+        usort($timeline, function($a, $b) {
+            return strcmp($a['date'], $b['date']);
+        });
+
+        // Если данных мало, дополняем моковыми для лучшего отображения
+        if (count($timeline) < 5 && $period === '7d') {
+            $timeline = $this->fillMissingDays($timeline, 7);
+        } elseif (count($timeline) < 4 && $period === '30d') {
+            $timeline = $this->fillMissingDays($timeline, 30);
+        }
+
+        return $timeline;
+    }
+
+    /**
+     * Заполняет недостающие дни для лучшего отображения графика
+     */
+    private function fillMissingDays(array $existingData, int $days): array
+    {
+        $result = [];
+        $startDate = now()->subDays($days);
+        
+        for ($i = 0; $i < $days; $i++) {
+            $currentDate = $startDate->copy()->addDays($i);
+            $dateKey = $currentDate->format('Y-m-d');
+            
+            // Ищем существующие данные для этой даты
+            $existingDay = collect($existingData)->firstWhere('date', $dateKey);
+            
+            if ($existingDay) {
+                $result[] = $existingDay;
+            } else {
+                $result[] = [
+                    'period' => $currentDate->format('M j'),
+                    'pnl' => 0,
+                    'trades' => 0,
+                    'date' => $dateKey
+                ];
+            }
+        }
+        
+        return $result;
     }
 
     /**
