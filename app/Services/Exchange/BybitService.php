@@ -404,60 +404,8 @@ class BybitService
         }
     }
 
-    /**
-     * Преобразует данные сделки Bybit в формат приложения
-     */
-    public function transformTradeData(array $bybitTrade): array
-    {
-        return [
-            'external_id' => $bybitTrade['execId'],
-            'symbol' => $bybitTrade['symbol'],
-            'side' => strtolower($bybitTrade['side']),
-            'size' => (float) $bybitTrade['execQty'],
-            'entry_price' => (float) $bybitTrade['execPrice'],
-            'entry_time' => Carbon::createFromTimestampMs($bybitTrade['execTime']),
-            'fee' => (float) $bybitTrade['execFee'],
-            'exchange' => 'bybit',
-            'status' => 'closed', // Исполненные сделки всегда закрыты
-        ];
-    }
 
-    /**
-     * Преобразует данные позиции Bybit в формат приложения
-     */
-    public function transformPositionData(array $bybitPosition): array
-    {
-        return [
-            'symbol' => $bybitPosition['symbol'],
-            'side' => strtolower($bybitPosition['side']),
-            'size' => (float) $bybitPosition['size'],
-            'entry_price' => (float) $bybitPosition['avgPrice'],
-            'unrealized_pnl' => (float) $bybitPosition['unrealisedPnl'],
-            'exchange' => 'bybit',
-            'status' => 'open',
-        ];
-    }
 
-    /**
-     * Преобразует данные закрытого PnL в формат приложения
-     */
-    public function transformClosedPnLData(array $bybitPnL): array
-    {
-        return [
-            'external_id' => $bybitPnL['orderId'],
-            'symbol' => $bybitPnL['symbol'],
-            'side' => strtolower($bybitPnL['side']),
-            'size' => (float) $bybitPnL['qty'],
-            'entry_price' => (float) $bybitPnL['avgEntryPrice'],
-            'exit_price' => (float) $bybitPnL['avgExitPrice'],
-            'entry_time' => Carbon::createFromTimestampMs($bybitPnL['createdTime']),
-            'exit_time' => Carbon::createFromTimestampMs($bybitPnL['updatedTime']),
-            'pnl' => (float) $bybitPnL['closedPnl'],
-            'fee' => abs((float) $bybitPnL['totalFee']),
-            'exchange' => 'bybit',
-            'status' => 'closed',
-        ];
-    }
 
     /**
      * Получает активные торговые символы из позиций и истории
@@ -487,6 +435,24 @@ class BybitService
             Log::warning('Failed to get active symbols', ['error' => $e->getMessage()]);
             return [];
         }
+    }
+
+    /**
+     * Преобразует данные сделки из формата Bybit в формат приложения
+     */
+    public function transformTradeData(array $bybitTrade): array
+    {
+        return [
+            'exchange' => 'bybit',
+            'external_id' => $bybitTrade['execId'],
+            'symbol' => $bybitTrade['symbol'],
+            'side' => strtolower($bybitTrade['side']),
+            'size' => (float) $bybitTrade['execQty'],
+            'entry_price' => (float) $bybitTrade['execPrice'],
+            'entry_time' => Carbon::createFromTimestampMs((int) $bybitTrade['execTime']),
+            'fee' => (float) ($bybitTrade['execFee'] ?? 0),
+            'status' => 'open',
+        ];
     }
 
     /**

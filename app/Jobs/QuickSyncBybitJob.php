@@ -205,7 +205,10 @@ class QuickSyncBybitJob implements ShouldQueue
         $tradeData['user_id'] = $this->userExchange->user_id;
 
         try {
-            Trade::create($tradeData);
+            $trade = Trade::create($tradeData);
+            
+            // Отправляем событие о новой сделке
+            \App\Events\RealTradeUpdate::dispatch($tradeData);
             
             Log::debug('Created new trade from quick sync', [
                 'user_id' => $this->userExchange->user_id,
@@ -348,10 +351,13 @@ class QuickSyncBybitJob implements ShouldQueue
                 'status' => 'closed',
                 'exit_price' => (float) $bybitPnL['avgExitPrice'],
                 'exit_time' => $closeTime,
-                'realized_pnl' => (float) $bybitPnL['closedPnl'],
+                'pnl' => (float) $bybitPnL['closedPnl'],
                 'fee' => (float) ($bybitPnL['cumExecFee'] ?? 0),
                 'updated_at' => now(),
             ]);
+            
+            // Отправляем событие об обновлении сделки
+            \App\Events\RealTradeUpdate::dispatch($openPosition->toArray());
             
             Log::debug('Closed position synced', [
                 'user_id' => $this->userExchange->user_id,

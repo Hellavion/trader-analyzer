@@ -7,10 +7,9 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { PlaceholderPattern } from '@/components/ui/placeholder-pattern';
 import AppLayout from '@/layouts/app-layout';
 import { index as exchangesIndex } from '@/routes/exchanges';
-import { type BreadcrumbItem, type UserExchange } from '@/types';
-import { exchangeService } from '@/services/exchange';
+import { type BreadcrumbItem } from '@/types';
 import { Head, useForm } from '@inertiajs/react';
-import { Plus, Settings, Trash2, Zap, RefreshCw } from 'lucide-react';
+import { Plus, Settings, Trash2, Zap } from 'lucide-react';
 import { useState } from 'react';
 
 const breadcrumbs: BreadcrumbItem[] = [
@@ -35,7 +34,6 @@ interface Props {
 
 export default function ExchangesIndex({ exchanges = [] }: Props) {
     const [isAddingExchange, setIsAddingExchange] = useState(false);
-    const [syncingExchange, setSyncingExchange] = useState<string | null>(null);
     
     const { data, setData, post, processing, errors, reset } = useForm({
         exchange: '',
@@ -56,27 +54,6 @@ export default function ExchangesIndex({ exchanges = [] }: Props) {
     const handleDisconnect = (exchangeId: number) => {
         // TODO: Implement disconnect functionality
         console.log('Disconnect exchange:', exchangeId);
-    };
-
-    const handleSync = async (exchangeName: string) => {
-        setSyncingExchange(exchangeName);
-        try {
-            const response = await exchangeService.sync(exchangeName);
-            if (response.success) {
-                // Показать уведомление об успехе
-                alert('Синхронизация запущена успешно!');
-                // Перезагрузить страницу через несколько секунд
-                setTimeout(() => {
-                    window.location.reload();
-                }, 2000);
-            } else {
-                alert('Ошибка синхронизации: ' + response.message);
-            }
-        } catch (error) {
-            alert('Ошибка синхронизации: ' + (error as Error).message);
-        } finally {
-            setSyncingExchange(null);
-        }
     };
 
     return (
@@ -258,23 +235,8 @@ export default function ExchangesIndex({ exchanges = [] }: Props) {
                                             <p className="font-medium">Последняя синхронизация</p>
                                             <p className="text-sm text-muted-foreground">2 минуты назад</p>
                                         </div>
-                                        <Button 
-                                            variant="outline" 
-                                            size="sm"
-                                            onClick={() => handleSync('bybit')}
-                                            disabled={syncingExchange === 'bybit'}
-                                        >
-                                            {syncingExchange === 'bybit' ? (
-                                                <>
-                                                    <RefreshCw className="h-4 w-4 mr-2 animate-spin" />
-                                                    Синхронизация...
-                                                </>
-                                            ) : (
-                                                <>
-                                                    <RefreshCw className="h-4 w-4 mr-2" />
-                                                    Синхронизировать
-                                                </>
-                                            )}
+                                        <Button variant="outline" size="sm">
+                                            Синхронизировать
                                         </Button>
                                     </div>
                                     

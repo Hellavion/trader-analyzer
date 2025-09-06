@@ -90,200 +90,89 @@ export interface MarketStructure {
 }
 
 // API Response Types
-export interface DashboardOverview {
-    connections: {
-        total: number;
-        active: number;
-        needs_sync: number;
-        exchanges: Array<{
-            name: string;
-            display_name: string;
-            is_active: boolean;
-            last_sync: string | null;
-            needs_sync: boolean;
-        }>;
-    };
-    trades: {
-        total: number;
-        open: number;
-        closed: number;
-        today: number;
-        this_week: number;
-    };
-    performance: {
-        total_pnl: number;
-        realized_pnl: number;
-        unrealized_pnl: number;
-        total_fees: number;
-        net_pnl: number;
-        win_rate: number;
-        winning_trades: number;
-        losing_trades: number;
-    };
-    analysis: {
+export interface ApiResponse<T = unknown> {
+    success: boolean;
+    data?: T;
+    message?: string;
+    meta?: Record<string, unknown>;
+    errors?: Record<string, string[]>;
+}
+
+export interface TradeAnalysisReport {
+    overview: {
+        total_trades: number;
         analyzed_trades: number;
-        coverage: number;
+        analysis_coverage: number;
+    };
+    smart_money_analysis: {
         average_score: number;
-        high_quality_trades: number;
-    };
-    market_data: {
-        symbols_tracked: number;
-        last_update: string | null;
-        data_points: number;
-    };
-    recent_activity: Array<{
-        type: 'trade' | 'sync';
-        description: string;
-        time: string;
-        status: string;
-        pnl: number | null;
-    }>;
-}
-
-export interface DashboardMetrics {
-    total_trades: number;
-    open_positions: number;
-    closed_trades: number;
-    total_pnl: number;
-    total_fees: number;
-    net_pnl: number;
-    win_rate: number;
-    profit_factor: number;
-    sharpe_ratio: number;
-    max_drawdown: number;
-    average_win: number;
-    average_loss: number;
-    largest_win: number;
-    largest_loss: number;
-    trading_volume: number;
-    period_comparison: {
-        trades_change: number;
-        pnl_change: number;
-        win_rate_change: number;
-    };
-}
-
-export interface DashboardWidgets {
-    quick_stats: {
-        today_trades: number;
-        today_pnl: number;
-        open_positions: number;
-        active_exchanges: number;
-    };
-    recent_trades: Array<{
-        id: number;
-        symbol: string;
-        side: 'buy' | 'sell';
-        size: number;
-        entry_price: number;
-        pnl: number | null;
-        status: string;
-        entry_time: string;
-    }>;
-    top_symbols: Array<{
-        symbol: string;
-        trades: number;
-        pnl: number;
-        volume: number;
-    }>;
-    exchange_breakdown: Array<{
-        exchange: string;
-        trades: number;
-        pnl: number;
-    }>;
-    smart_money_score: {
-        average_score: number;
-        trend: 'improving' | 'declining' | 'stable' | 'neutral';
-        distribution: {
+        max_score: number;
+        min_score: number;
+        score_distribution: {
             excellent: number;
             good: number;
             average: number;
             poor: number;
         };
+        score_vs_pnl_correlation: number;
     };
-    alerts: Array<{
-        type: 'warning' | 'info' | 'error';
-        message: string;
-        action: string;
-    }>;
-}
-
-// Exchange related types
-export interface ExchangeInfo {
-    name: string;
-    display_name: string;
-    is_supported: boolean;
-    requires_api_key: boolean;
-    requires_secret: boolean;
-    requires_passphrase: boolean;
-    supports_testnet: boolean;
-}
-
-export interface ExchangeConnection {
-    id: number;
-    exchange: string;
-    display_name: string;
-    is_active: boolean;
-    is_testnet: boolean;
-    last_sync_at: string | null;
-    sync_settings: {
-        auto_sync: boolean;
-        sync_interval: number;
-        sync_trades: boolean;
-        sync_positions: boolean;
+    pattern_analysis: {
+        most_common_patterns: Record<string, number>;
+        total_patterns_detected: number;
+        unique_patterns: number;
     };
-    created_at: string;
-    updated_at: string;
-}
-
-export interface TradeFilters {
-    symbol?: string;
-    exchange?: string;
-    side?: 'buy' | 'sell';
-    status?: 'open' | 'closed';
-    date_from?: string;
-    date_to?: string;
-    min_size?: number;
-    max_size?: number;
-    min_pnl?: number;
-    max_pnl?: number;
-    page?: number;
-    per_page?: number;
-}
-
-export interface TradeStats {
-    total_trades: number;
-    total_volume: number;
-    total_pnl: number;
-    total_fees: number;
-    win_rate: number;
-    profit_factor: number;
-    average_win: number;
-    average_loss: number;
-    largest_win: number;
-    largest_loss: number;
-    by_symbol: Record<string, {
-        trades: number;
-        volume: number;
+    quality_analysis: {
+        entry_analysis: {
+            average_quality: number;
+            distribution: QualityDistribution;
+        };
+        exit_analysis: {
+            average_quality: number;
+            distribution: QualityDistribution;
+        };
+    };
+    recommendations: Recommendation[];
+    market_structure_insights: {
+        bias_distribution: Record<string, number>;
+        structure_alignment: {
+            total_analyzed: number;
+            aligned_trades: number;
+        };
+    };
+    performance_correlation: {
+        score_vs_pnl: number;
+        entry_quality_vs_pnl: number;
+    };
+    pnl_timeline?: Array<{
+        period: string;
         pnl: number;
-    }>;
-    by_exchange: Record<string, {
         trades: number;
-        volume: number;
-        pnl: number;
+        date: string;
     }>;
 }
 
-// Analysis related types
+export interface QualityDistribution {
+    excellent: number;
+    good: number;
+    average: number;
+    poor: number;
+}
+
+export interface Recommendation {
+    type: string;
+    title: string;
+    description: string;
+    priority: 'high' | 'medium' | 'low';
+}
+
 export interface OrderBlock {
     id: string;
     type: 'bullish' | 'bearish';
     high: number;
     low: number;
     timestamp: string;
+    is_active: boolean;
     strength: number;
-    tested: boolean;
-    test_count: number;
 }
 
 export interface FairValueGap {
@@ -291,27 +180,17 @@ export interface FairValueGap {
     type: 'bullish' | 'bearish';
     gap_high: number;
     gap_low: number;
-    start_time: string;
-    end_time: string;
+    start_index: number;
+    end_index: number;
     is_filled: boolean;
-    fill_time: string | null;
+    fill_index?: number;
 }
 
 export interface LiquidityLevel {
     id: string;
+    type: 'support' | 'resistance';
     level: number;
-    type: 'support' | 'resistance' | 'equal_highs' | 'equal_lows';
     strength: number;
-    touches: number;
-    last_test: string;
-    swept: boolean;
-}
-
-export interface MarketStructureData {
-    symbol: string;
-    timeframe: string;
-    timestamp: string;
-    order_blocks: OrderBlock[];
-    liquidity_levels: LiquidityLevel[];
-    fvg_zones: FairValueGap[];
+    touches: number[];
+    is_swept: boolean;
 }
