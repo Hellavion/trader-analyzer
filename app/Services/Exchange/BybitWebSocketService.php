@@ -4,7 +4,7 @@ namespace App\Services\Exchange;
 
 use App\Models\UserExchange;
 use App\Models\Trade;
-use App\Events\TradeExecuted;
+use App\Events\RealTradeUpdate;
 use Illuminate\Support\Facades\Log;
 use Carbon\Carbon;
 use ReactPHP\Socket\Connector;
@@ -216,9 +216,9 @@ class BybitWebSocketService
             'size' => $trade->size,
         ]);
 
-        Log::info('Broadcasting TradeExecuted event', ['trade_id' => $trade->id]);
-        broadcast(new TradeExecuted($trade));
-        Log::info('TradeExecuted event broadcasted', ['trade_id' => $trade->id]);
+        Log::info('Broadcasting RealTradeUpdate event', ['trade_id' => $trade->id]);
+        \App\Events\RealTradeUpdate::dispatch($trade->toArray());
+        Log::info('RealTradeUpdate event dispatched', ['trade_id' => $trade->id]);
     }
 
     private function processClosedPosition(array $position): void
@@ -265,7 +265,7 @@ class BybitWebSocketService
             ]);
 
             // Отправляем real-time уведомление
-            broadcast(new TradeExecuted($trade));
+            \App\Events\RealTradeUpdate::dispatch($trade->toArray());
         } else {
             Log::debug('Duplicate trade skipped', [
                 'external_id' => $tradeData['external_id']

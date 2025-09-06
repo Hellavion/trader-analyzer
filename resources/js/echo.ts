@@ -7,7 +7,7 @@ import { WaveConnector } from 'laravel-wave';
  */
 window.Echo = new Echo({
     broadcaster: WaveConnector,
-    endpoint: 'http://127.0.0.1:8001/wave',
+    endpoint: '/trader-analyzer/public/wave',
     namespace: 'App.Events',
     auth: {
         headers: {},

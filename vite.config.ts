@@ -5,11 +5,20 @@ import laravel from 'laravel-vite-plugin';
 import { defineConfig } from 'vite';
 
 export default defineConfig({
+    base: '/trader-analyzer/public/build/',
+    build: {
+        outDir: 'public/build',
+        emptyOutDir: true,
+    },
+    server: {
+        port: 5173,
+    },
     plugins: [
         laravel({
             input: ['resources/css/app.css', 'resources/js/app.tsx'],
             ssr: 'resources/js/ssr.tsx',
             refresh: true,
+            buildDirectory: 'build',
         }),
         react(),
         tailwindcss(),

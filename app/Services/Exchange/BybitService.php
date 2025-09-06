@@ -438,6 +438,24 @@ class BybitService
     }
 
     /**
+     * Преобразует данные сделки из формата Bybit в формат приложения
+     */
+    public function transformTradeData(array $bybitTrade): array
+    {
+        return [
+            'exchange' => 'bybit',
+            'external_id' => $bybitTrade['execId'],
+            'symbol' => $bybitTrade['symbol'],
+            'side' => strtolower($bybitTrade['side']),
+            'size' => (float) $bybitTrade['execQty'],
+            'entry_price' => (float) $bybitTrade['execPrice'],
+            'entry_time' => Carbon::createFromTimestampMs((int) $bybitTrade['execTime']),
+            'fee' => (float) ($bybitTrade['execFee'] ?? 0),
+            'status' => 'open',
+        ];
+    }
+
+    /**
      * Проверяет статус API соединения
      */
     public function getApiStatus(): array

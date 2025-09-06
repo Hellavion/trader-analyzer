@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import Echo from '../echo';
+import '../echo';
 
 /**
  * Hook для работы с real-time обновлениями через Laravel Wave
@@ -11,7 +11,7 @@ export function useRealtime() {
     useEffect(() => {
         try {
             // Тестовое подключение к приватному каналу
-            const channel = Echo.private('App.Models.User.1');
+            const channel = window.Echo.private('App.Models.User.1');
             
             channel.subscribed(() => {
                 console.log('✅ Laravel Wave connected successfully');
@@ -43,7 +43,7 @@ export function useRealtimeTrades(userId: number) {
     const [lastTradeReceived, setLastTradeReceived] = useState<any>(null);
 
     useEffect(() => {
-        const channel = Echo.private(`user.${userId}.trades`);
+        const channel = window.Echo.private(`user.${userId}.trades`);
         
         channel.listen('TradeExecuted', (event: any) => {
             console.log('🔥 New trade received via WebSocket:', event);
@@ -93,7 +93,7 @@ export function useRealtimeWallet(userId: number) {
     const [walletData, setWalletData] = useState<any>(null);
 
     useEffect(() => {
-        const channel = Echo.private(`user.${userId}.wallet`);
+        const channel = window.Echo.private(`user.${userId}.wallet`);
         
         channel.listen('WalletUpdated', (event: any) => {
             console.log('💰 Wallet updated:', event);

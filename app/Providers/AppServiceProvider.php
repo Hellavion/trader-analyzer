@@ -3,6 +3,7 @@
 namespace App\Providers;
 
 use Illuminate\Support\ServiceProvider;
+use Illuminate\Support\Facades\URL;
 
 class AppServiceProvider extends ServiceProvider
 {
@@ -19,10 +20,18 @@ class AppServiceProvider extends ServiceProvider
      */
     public function boot(): void
     {
-        // Отключаем Wave маршруты на основном сервере (8000)
-        // SSE работает только на отдельном сервере (8001)
-        if (app()->environment('local') && !isset($_ENV['SSE_SERVER_MODE'])) {
-            config(['wave.path' => null]); // Отключаем Wave маршруты
+        $this->configureUrlGeneration();
+    }
+
+    private function configureUrlGeneration(): void
+    {
+        $appUrl = config('app.url');
+        $parsedUrl = parse_url($appUrl);
+        
+        // Применяем forceRootUrl только для развертывания в подпапках
+        // На продакшне где APP_URL=https://domain.com это не выполнится
+        if (isset($parsedUrl['path']) && $parsedUrl['path'] !== '/') {
+            URL::forceRootUrl($appUrl);
         }
     }
 }

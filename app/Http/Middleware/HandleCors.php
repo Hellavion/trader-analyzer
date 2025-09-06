@@ -17,9 +17,9 @@ class HandleCors
     {
         $response = $next($request);
         
-        // CORS headers для development разделения портов
+        // CORS headers для SSE соединений
         if (app()->environment('local')) {
-            $response->headers->set('Access-Control-Allow-Origin', 'http://127.0.0.1:8000');
+            $response->headers->set('Access-Control-Allow-Origin', 'http://projects.test');
             $response->headers->set('Access-Control-Allow-Credentials', 'true');
             $response->headers->set('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
             $response->headers->set('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With, X-CSRF-TOKEN');

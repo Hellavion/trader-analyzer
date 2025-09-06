@@ -80,6 +80,46 @@ Route::middleware(['auth', 'verified'])->group(function () {
         ]);
     })->name('test.realtime');
 
+    // Тестовая страница для live trading
+    Route::get('test-live-trades', function () {
+        return Inertia::render('test-live-trades', [
+            'user' => auth()->user()
+        ]);
+    })->middleware('auth')->name('test.live-trades');
+
+    // Эндпоинт для тестирования broadcasting с имитацией сделок
+    Route::post('test/send-fake-trade', function () {
+        $fakeTradeData = [
+            'id' => 'test_' . time() . '_' . rand(1000, 9999),
+            'symbol' => collect(['BTCUSDT', 'ETHUSDT', 'ADAUSDT', 'SOLUSDT'])->random(),
+            'side' => collect(['buy', 'sell'])->random(),
+            'size' => round(rand(100, 10000) / 100, 2),
+            'entry_price' => round(rand(20000, 70000), 2),
+            'exit_price' => rand(0, 1) ? round(rand(20000, 70000), 2) : null,
+            'pnl' => null,
+            'timestamp' => now()->toISOString(),
+            'status' => collect(['open', 'closed'])->random(),
+        ];
+
+        // Если сделка закрыта, рассчитываем PnL
+        if ($fakeTradeData['status'] === 'closed' && $fakeTradeData['exit_price']) {
+            $diff = $fakeTradeData['exit_price'] - $fakeTradeData['entry_price'];
+            if ($fakeTradeData['side'] === 'sell') {
+                $diff = -$diff;
+            }
+            $fakeTradeData['pnl'] = round($diff * $fakeTradeData['size'], 2);
+        }
+
+        // Отправляем событие
+        \App\Events\TestTradeUpdate::dispatch($fakeTradeData);
+
+        return response()->json([
+            'success' => true,
+            'trade' => $fakeTradeData,
+            'message' => 'Тестовая сделка отправлена'
+        ]);
+    })->middleware('auth')->name('test.send-fake-trade');
+
     // Manual sync endpoint
     Route::post('sync/manual', function () {
         $user = auth()->user();

@@ -2,6 +2,16 @@
 
 use Illuminate\Support\Facades\Broadcast;
 
+// Тестовый канал для проверки broadcasting (публичный)
+Broadcast::channel('test-trades', function () {
+    return true;
+});
+
+// Публичный канал для реальных сделок
+Broadcast::channel('live-trades', function () {
+    return true;
+});
+
 Broadcast::channel('App.Models.User.{id}', function ($user, $id) {
     return (int) $user->id === (int) $id;
 });
