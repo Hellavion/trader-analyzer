@@ -89,11 +89,7 @@ class SyncBybitTradesJob implements ShouldQueue
 
                 if (!$exists) {
                     Log::debug('Creating trade with data:', $tradeData);
-                    $trade = Trade::create($tradeData);
-                    
-                    // Отправляем событие о новой сделке
-                    \App\Events\RealTradeUpdate::dispatch($tradeData);
-                    
+                    Trade::create($tradeData);
                     $synced++;
                 }
             }
