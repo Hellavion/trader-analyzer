@@ -5,6 +5,14 @@ import { resolvePageComponent } from 'laravel-vite-plugin/inertia-helpers';
 import { createRoot } from 'react-dom/client';
 import { initializeTheme } from './hooks/use-appearance';
 import './echo.ts'; // Инициализация Laravel Echo с Wave
+import { route as ziggyRoute } from 'ziggy-js';
+
+// Настройка глобального route helper
+declare global {
+    var route: typeof ziggyRoute;
+}
+
+globalThis.route = ziggyRoute;
 
 const appName = import.meta.env.VITE_APP_NAME || 'Laravel';
 

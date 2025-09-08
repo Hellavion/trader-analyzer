@@ -7,22 +7,6 @@ Route::get('/', function () {
     return Inertia::render('welcome');
 })->name('home');
 
-// Debug routes for fixing auth issues
-Route::get('/debug-auth', function () {
-    return view('auth-debug');
-});
-
-Route::post('/debug-login', function (Illuminate\Http\Request $request) {
-    $credentials = $request->only('email', 'password');
-    
-    if (Auth::attempt($credentials, true)) {
-        $request->session()->regenerate();
-        return redirect('/dashboard');
-    }
-    
-    return back()->withErrors(['Invalid credentials']);
-});
-
 Route::middleware(['auth', 'verified'])->group(function () {
     Route::get('dashboard', function () {
         return redirect()->route('analysis.index');
@@ -48,6 +32,12 @@ Route::middleware(['auth', 'verified'])->group(function () {
     Route::get('trades', function () {
         return Inertia::render('trades/index');
     })->name('trades.index');
+    
+    Route::get('trades/{trade}', function ($tradeId) {
+        return Inertia::render('trades/show', [
+            'tradeId' => (int) $tradeId
+        ]);
+    })->name('trades.show');
 
     Route::get('analysis', function () {
         return Inertia::render('analysis/index');
@@ -79,125 +69,6 @@ Route::middleware(['auth', 'verified'])->group(function () {
             'existingTrades' => $existingTrades
         ]);
     })->name('test.realtime');
-
-    // Тестовая страница для live trading
-    Route::get('test-live-trades', function () {
-        return Inertia::render('test-live-trades', [
-            'user' => auth()->user()
-        ]);
-    })->middleware('auth')->name('test.live-trades');
-
-    // Эндпоинт для тестирования broadcasting с имитацией сделок
-    Route::post('test/send-fake-trade', function () {
-        $fakeTradeData = [
-            'id' => 'test_' . time() . '_' . rand(1000, 9999),
-            'symbol' => collect(['BTCUSDT', 'ETHUSDT', 'ADAUSDT', 'SOLUSDT'])->random(),
-            'side' => collect(['buy', 'sell'])->random(),
-            'size' => round(rand(100, 10000) / 100, 2),
-            'entry_price' => round(rand(20000, 70000), 2),
-            'exit_price' => rand(0, 1) ? round(rand(20000, 70000), 2) : null,
-            'pnl' => null,
-            'timestamp' => now()->toISOString(),
-            'status' => collect(['open', 'closed'])->random(),
-        ];
-
-        // Если сделка закрыта, рассчитываем PnL
-        if ($fakeTradeData['status'] === 'closed' && $fakeTradeData['exit_price']) {
-            $diff = $fakeTradeData['exit_price'] - $fakeTradeData['entry_price'];
-            if ($fakeTradeData['side'] === 'sell') {
-                $diff = -$diff;
-            }
-            $fakeTradeData['pnl'] = round($diff * $fakeTradeData['size'], 2);
-        }
-
-        // Отправляем событие
-        \App\Events\TestTradeUpdate::dispatch($fakeTradeData);
-
-        return response()->json([
-            'success' => true,
-            'trade' => $fakeTradeData,
-            'message' => 'Тестовая сделка отправлена'
-        ]);
-    })->middleware('auth')->name('test.send-fake-trade');
-
-    // Manual sync endpoint
-    Route::post('sync/manual', function () {
-        $user = auth()->user();
-        
-        // Получаем активные биржи пользователя
-        $activeExchanges = $user->activeExchanges()->get();
-        
-        if ($activeExchanges->isEmpty()) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Нет активных подключений к биржам'
-            ], 400);
-        }
-        
-        $jobsDispatched = 0;
-        
-        // Запускаем быструю синхронизацию для каждой активной биржи
-        foreach ($activeExchanges as $exchange) {
-            if ($exchange->exchange === 'bybit') {
-                \App\Jobs\QuickSyncBybitJob::dispatch($exchange);
-                $jobsDispatched++;
-            }
-        }
-        
-        if ($jobsDispatched === 0) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Нет поддерживаемых бирж для синхронизации'
-            ], 400);
-        }
-        
-        // Получаем текущие timestamps для отслеживания завершения
-        $syncTimestamps = [];
-        foreach ($activeExchanges as $exchange) {
-            if ($exchange->exchange === 'bybit') {
-                $syncTimestamps[] = [
-                    'exchange_id' => $exchange->id,
-                    'last_sync_before' => $exchange->last_sync_at?->timestamp ?? 0
-                ];
-            }
-        }
-        
-        return response()->json([
-            'success' => true,
-            'message' => "Синхронизация запущена для {$jobsDispatched} бирж",
-            'sync_timestamps' => $syncTimestamps
-        ]);
-    })->name('sync.manual');
-
-    // Endpoint для проверки статуса синхронизации
-    Route::post('sync/status', function (Illuminate\Http\Request $request) {
-        $user = auth()->user();
-        $syncTimestamps = $request->input('sync_timestamps', []);
-        
-        $completed = true;
-        $updatedExchanges = 0;
-        
-        foreach ($syncTimestamps as $syncData) {
-            $exchange = $user->exchanges()->find($syncData['exchange_id']);
-            if ($exchange) {
-                $currentTimestamp = $exchange->last_sync_at?->timestamp ?? 0;
-                $beforeTimestamp = $syncData['last_sync_before'];
-                
-                if ($currentTimestamp > $beforeTimestamp) {
-                    $updatedExchanges++;
-                } else {
-                    $completed = false; // Еще не все джобы завершились
-                }
-            }
-        }
-        
-        return response()->json([
-            'success' => true,
-            'completed' => $completed,
-            'updated_exchanges' => $updatedExchanges,
-            'total_exchanges' => count($syncTimestamps)
-        ]);
-    })->name('sync.status');
 
     // Exchange management
     Route::post('exchanges', function (Illuminate\Http\Request $request) {

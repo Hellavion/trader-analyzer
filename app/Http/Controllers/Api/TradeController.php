@@ -101,7 +101,6 @@ class TradeController extends Controller
                     'entry_time' => $trade->entry_time->toISOString(),
                     'exit_time' => $trade->exit_time?->toISOString(),
                     'pnl' => $trade->pnl ? (float) $trade->pnl : null,
-                    'pnl_percent' => $trade->pnl_percent,
                     'fee' => (float) $trade->fee,
                     'status' => $trade->status,
                     'analysis' => $trade->analysis ? [
@@ -174,7 +173,6 @@ class TradeController extends Controller
                 'entry_time' => $trade->entry_time->toISOString(),
                 'exit_time' => $trade->exit_time?->toISOString(),
                 'pnl' => $trade->pnl ? (float) $trade->pnl : null,
-                'pnl_percent' => $trade->pnl_percent,
                 'fee' => (float) $trade->fee,
                 'status' => $trade->status,
                 'is_closed' => $trade->isClosed(),

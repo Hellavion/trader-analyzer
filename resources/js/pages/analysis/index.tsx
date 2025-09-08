@@ -4,7 +4,6 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Skeleton } from '@/components/ui/skeleton';
 import AppLayout from '@/layouts/app-layout';
-import { index as analysisIndex } from '@/routes/analysis';
 import { type BreadcrumbItem } from '@/types';
 import { ApiResponse, TradeAnalysisReport } from '@/types';
 import { Head } from '@inertiajs/react';
@@ -27,7 +26,7 @@ import {
 const breadcrumbs: BreadcrumbItem[] = [
     {
         title: 'Аналитика',
-        href: analysisIndex().url,
+        href: route('analysis.index'),
     },
 ];
 

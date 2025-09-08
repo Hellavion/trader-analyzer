@@ -6,7 +6,6 @@ import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { PlaceholderPattern } from '@/components/ui/placeholder-pattern';
 import AppLayout from '@/layouts/app-layout';
-import { index as exchangesIndex } from '@/routes/exchanges';
 import { type BreadcrumbItem } from '@/types';
 import { Head, useForm } from '@inertiajs/react';
 import { Plus, Settings, Trash2, Zap } from 'lucide-react';
@@ -15,7 +14,7 @@ import { useState } from 'react';
 const breadcrumbs: BreadcrumbItem[] = [
     {
         title: 'Биржи',
-        href: exchangesIndex().url,
+        href: route('exchanges.index'),
     },
 ];
 

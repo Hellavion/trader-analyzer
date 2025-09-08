@@ -5,16 +5,17 @@ import { Input } from '@/components/ui/input';
 import { PlaceholderPattern } from '@/components/ui/placeholder-pattern';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import AppLayout from '@/layouts/app-layout';
-import { index as tradesIndex } from '@/routes/trades';
 import { type BreadcrumbItem, type Trade, type TradeAnalysis } from '@/types';
-import { Head } from '@inertiajs/react';
-import { Calendar, Search, TrendingDown, TrendingUp } from 'lucide-react';
-import { useState } from 'react';
+import { Head, Link } from '@inertiajs/react';
+import { Calendar, Search, TrendingDown, TrendingUp, RefreshCw, AlertCircle, Loader2 } from 'lucide-react';
+import { useState, useMemo } from 'react';
+import { useTrades } from '@/hooks/use-trades';
+import { Alert, AlertDescription } from '@/components/ui/alert';
 
 const breadcrumbs: BreadcrumbItem[] = [
     {
-        title: 'Trades',
-        href: tradesIndex().url,
+        title: 'Сделки',
+        href: route('trades.index'),
     },
 ];
 
@@ -23,7 +24,8 @@ interface TradeWithAnalysis extends Trade {
 }
 
 interface Props {
-    trades: TradeWithAnalysis[];
+    // Эти props теперь опциональны, так как данные загружаются через API
+    trades?: TradeWithAnalysis[];
     filters?: {
         symbol?: string;
         exchange?: string;
@@ -33,77 +35,26 @@ interface Props {
     };
 }
 
-const mockTrades: TradeWithAnalysis[] = [
-    {
-        id: 1,
-        user_id: 1,
-        exchange: 'bybit',
-        symbol: 'BTCUSDT',
-        side: 'buy',
-        size: 0.1,
-        entry_price: 43250.5,
-        exit_price: 44120.25,
-        timestamp: '2024-01-15T10:30:00Z',
-        external_id: 'bybit_123456',
-        created_at: '2024-01-15T10:30:00Z',
-        updated_at: '2024-01-15T10:30:00Z',
-        analysis: {
-            id: 1,
-            trade_id: 1,
-            smart_money_score: 8.5,
-            entry_context_json: '{"order_block_reaction": true, "liquidity_sweep": true}',
-            exit_context_json: '{"profit_target": true}',
-            patterns_json: '{"entry_type": "order_block", "setup_quality": "high"}',
-            created_at: '2024-01-15T10:31:00Z',
-            updated_at: '2024-01-15T10:31:00Z',
-        },
-    },
-    {
-        id: 2,
-        user_id: 1,
-        exchange: 'bybit',
-        symbol: 'ETHUSDT',
-        side: 'sell',
-        size: 2.5,
-        entry_price: 2650.75,
-        exit_price: 2580.30,
-        timestamp: '2024-01-14T14:20:00Z',
-        external_id: 'bybit_789012',
-        created_at: '2024-01-14T14:20:00Z',
-        updated_at: '2024-01-14T14:20:00Z',
-        analysis: {
-            id: 2,
-            trade_id: 2,
-            smart_money_score: 6.2,
-            entry_context_json: '{"order_block_reaction": false, "fvg_entry": true}',
-            exit_context_json: '{"stop_loss": true}',
-            patterns_json: '{"entry_type": "fvg", "setup_quality": "medium"}',
-            created_at: '2024-01-14T14:21:00Z',
-            updated_at: '2024-01-14T14:21:00Z',
-        },
-    },
-];
-
-export default function TradesIndex({ trades = [] }: Props) {
-    const [searchQuery, setSearchQuery] = useState('');
-    const [selectedExchange, setSelectedExchange] = useState<string>('all');
-    const [selectedSide, setSelectedSide] = useState<string>('all');
+export default function TradesIndex({ filters: initialFilters }: Props) {
+    const [searchQuery, setSearchQuery] = useState(initialFilters?.symbol || '');
+    const [selectedExchange, setSelectedExchange] = useState<string>(initialFilters?.exchange || 'all');
+    const [selectedSide, setSelectedSide] = useState<string>(initialFilters?.side || 'all');
     
-    // Use mock data for demonstration
-    const displayTrades = trades.length > 0 ? trades : mockTrades;
+    // API фильтры на основе состояния UI
+    const apiFilters = useMemo(() => ({
+        symbol: searchQuery || undefined,
+        exchange: selectedExchange !== 'all' ? selectedExchange : undefined,
+        side: selectedSide !== 'all' ? (selectedSide as 'buy' | 'sell') : undefined,
+        limit: 50,
+        sort_by: 'entry_time',
+        sort_order: 'desc' as const,
+    }), [searchQuery, selectedExchange, selectedSide]);
     
-    const filteredTrades = displayTrades.filter((trade) => {
-        if (searchQuery && !trade.symbol.toLowerCase().includes(searchQuery.toLowerCase())) {
-            return false;
-        }
-        if (selectedExchange !== 'all' && trade.exchange !== selectedExchange) {
-            return false;
-        }
-        if (selectedSide !== 'all' && trade.side !== selectedSide) {
-            return false;
-        }
-        return true;
-    });
+    // Получаем данные через API
+    const { trades, loading, error, refetch, syncTrades, isSyncing, pagination } = useTrades(apiFilters);
+    
+    // Фильтрация теперь происходит на сервере, поэтому используем trades напрямую
+    const filteredTrades = trades || [];
 
     const getScoreColor = (score: number) => {
         if (score >= 8) return 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200';
@@ -112,9 +63,7 @@ export default function TradesIndex({ trades = [] }: Props) {
     };
 
     const getPnL = (trade: Trade) => {
-        if (!trade.exit_price) return 0;
-        const multiplier = trade.side === 'buy' ? 1 : -1;
-        return (trade.exit_price - trade.entry_price) * trade.size * multiplier;
+        return trade.pnl || 0;
     };
 
     const formatCurrency = (amount: number) => {
@@ -132,17 +81,40 @@ export default function TradesIndex({ trades = [] }: Props) {
             <div className="flex h-full flex-1 flex-col gap-6 overflow-x-auto p-6">
                 <div className="flex items-center justify-between">
                     <div>
-                        <h1 className="text-2xl font-bold tracking-tight">Trade History</h1>
+                        <h1 className="text-2xl font-bold tracking-tight">История сделок</h1>
                         <p className="text-muted-foreground">
-                            Analyze your trading performance with Smart Money insights
+                            Анализируйте свою торговую эффективность с помощью Smart Money инсайтов
                         </p>
+                    </div>
+                    <div className="flex items-center gap-2">
+                        <Button
+                            variant="outline"
+                            onClick={() => refetch()}
+                            disabled={loading}
+                            className="flex items-center gap-2"
+                        >
+                            <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
+                            Обновить
+                        </Button>
+                        <Button
+                            onClick={() => syncTrades()}
+                            disabled={isSyncing}
+                            className="flex items-center gap-2"
+                        >
+                            {isSyncing ? (
+                                <Loader2 className="h-4 w-4 animate-spin" />
+                            ) : (
+                                <RefreshCw className="h-4 w-4" />
+                            )}
+                            {isSyncing ? 'Синхронизация...' : 'Синхронизировать сделки'}
+                        </Button>
                     </div>
                 </div>
 
                 {/* Filters */}
                 <Card>
                     <CardHeader className="pb-4">
-                        <CardTitle className="text-lg">Filters</CardTitle>
+                        <CardTitle className="text-lg">Фильтры</CardTitle>
                     </CardHeader>
                     <CardContent>
                         <div className="flex gap-4 flex-wrap">
@@ -150,7 +122,7 @@ export default function TradesIndex({ trades = [] }: Props) {
                                 <div className="relative">
                                     <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
                                     <Input
-                                        placeholder="Search symbol..."
+                                        placeholder="Поиск по символу..."
                                         value={searchQuery}
                                         onChange={(e) => setSearchQuery(e.target.value)}
                                         className="pl-10"
@@ -160,10 +132,10 @@ export default function TradesIndex({ trades = [] }: Props) {
                             
                             <Select value={selectedExchange} onValueChange={setSelectedExchange}>
                                 <SelectTrigger className="w-[150px]">
-                                    <SelectValue placeholder="Exchange" />
+                                    <SelectValue placeholder="Биржа" />
                                 </SelectTrigger>
                                 <SelectContent>
-                                    <SelectItem value="all">All Exchanges</SelectItem>
+                                    <SelectItem value="all">Все биржи</SelectItem>
                                     <SelectItem value="bybit">Bybit</SelectItem>
                                     <SelectItem value="mexc">MEXC</SelectItem>
                                 </SelectContent>
@@ -171,32 +143,50 @@ export default function TradesIndex({ trades = [] }: Props) {
                             
                             <Select value={selectedSide} onValueChange={setSelectedSide}>
                                 <SelectTrigger className="w-[130px]">
-                                    <SelectValue placeholder="Side" />
+                                    <SelectValue placeholder="Сторона" />
                                 </SelectTrigger>
                                 <SelectContent>
-                                    <SelectItem value="all">All Sides</SelectItem>
-                                    <SelectItem value="buy">Buy</SelectItem>
-                                    <SelectItem value="sell">Sell</SelectItem>
+                                    <SelectItem value="all">Все</SelectItem>
+                                    <SelectItem value="buy">Покупка</SelectItem>
+                                    <SelectItem value="sell">Продажа</SelectItem>
                                 </SelectContent>
                             </Select>
                             
                             <Button variant="outline" className="flex items-center gap-2">
                                 <Calendar className="h-4 w-4" />
-                                Date Range
+                                Период дат
                             </Button>
                         </div>
                     </CardContent>
                 </Card>
 
-                {filteredTrades.length === 0 ? (
+                {/* Error Alert */}
+                {error && (
+                    <Alert variant="destructive">
+                        <AlertCircle className="h-4 w-4" />
+                        <AlertDescription>
+                            {error}
+                        </AlertDescription>
+                    </Alert>
+                )}
+
+                {/* Loading State */}
+                {loading ? (
+                    <Card>
+                        <CardContent className="flex flex-col items-center justify-center py-16">
+                            <Loader2 className="h-8 w-8 animate-spin text-muted-foreground mb-4" />
+                            <p className="text-muted-foreground">Загрузка сделок...</p>
+                        </CardContent>
+                    </Card>
+                ) : filteredTrades.length === 0 ? (
                     <Card className="relative overflow-hidden">
                         <CardContent className="flex flex-col items-center justify-center py-16">
                             <PlaceholderPattern className="absolute inset-0 size-full stroke-neutral-900/10 dark:stroke-neutral-100/10" />
                             <div className="relative flex flex-col items-center text-center">
                                 <TrendingUp className="h-12 w-12 text-muted-foreground mb-4" />
-                                <h3 className="text-lg font-semibold mb-2">No trades found</h3>
+                                <h3 className="text-lg font-semibold mb-2">Сделки не найдены</h3>
                                 <p className="text-muted-foreground max-w-sm">
-                                    Connect your exchanges and sync your trades to see them here with Smart Money analysis.
+                                    Подключите свои биржи и синхронизируйте сделки, чтобы увидеть их здесь с анализом Smart Money.
                                 </p>
                             </div>
                         </CardContent>
@@ -208,8 +198,9 @@ export default function TradesIndex({ trades = [] }: Props) {
                             const isProfitable = pnl > 0;
                             
                             return (
-                                <Card key={trade.id} className="hover:shadow-md transition-shadow">
-                                    <CardContent className="p-6">
+                                <Card key={trade.id} className="hover:shadow-md transition-shadow cursor-pointer" asChild>
+                                    <Link href={route('trades.show', trade.id)}>
+                                        <CardContent className="p-6">
                                         <div className="flex items-center justify-between">
                                             <div className="flex items-center gap-4">
                                                 <div className="flex items-center gap-2">
@@ -222,14 +213,14 @@ export default function TradesIndex({ trades = [] }: Props) {
                                                         <div className="flex items-center gap-2">
                                                             <h3 className="font-semibold text-lg">{trade.symbol}</h3>
                                                             <Badge variant="secondary" className="uppercase">
-                                                                {trade.side}
+                                                                {trade.side === 'buy' ? 'ПОКУПКА' : 'ПРОДАЖА'}
                                                             </Badge>
                                                             <Badge variant="outline" className="capitalize">
                                                                 {trade.exchange}
                                                             </Badge>
                                                         </div>
                                                         <p className="text-sm text-muted-foreground">
-                                                            {new Date(trade.timestamp).toLocaleString()}
+                                                            {new Date(trade.entry_time).toLocaleString()}
                                                         </p>
                                                     </div>
                                                 </div>
@@ -258,21 +249,21 @@ export default function TradesIndex({ trades = [] }: Props) {
                                         
                                         <div className="mt-4 grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
                                             <div>
-                                                <p className="text-muted-foreground">Size</p>
+                                                <p className="text-muted-foreground">Размер</p>
                                                 <p className="font-medium">{trade.size}</p>
                                             </div>
                                             <div>
-                                                <p className="text-muted-foreground">Entry Price</p>
+                                                <p className="text-muted-foreground">Цена входа</p>
                                                 <p className="font-medium">{formatCurrency(trade.entry_price)}</p>
                                             </div>
                                             <div>
-                                                <p className="text-muted-foreground">Exit Price</p>
+                                                <p className="text-muted-foreground">Цена выхода</p>
                                                 <p className="font-medium">
-                                                    {trade.exit_price ? formatCurrency(trade.exit_price) : 'Open'}
+                                                    {trade.exit_price ? formatCurrency(trade.exit_price) : 'Открыта'}
                                                 </p>
                                             </div>
                                             <div>
-                                                <p className="text-muted-foreground">Return %</p>
+                                                <p className="text-muted-foreground">Доходность %</p>
                                                 <p className={`font-medium ${
                                                     trade.exit_price 
                                                         ? (isProfitable ? 'text-green-600' : 'text-red-600') 
@@ -290,32 +281,77 @@ export default function TradesIndex({ trades = [] }: Props) {
                                             <div className="mt-4 pt-4 border-t">
                                                 <div className="flex items-center gap-4 text-sm">
                                                     <div>
-                                                        <p className="text-muted-foreground">Entry Analysis</p>
+                                                        <p className="text-muted-foreground">Анализ входа</p>
                                                         <div className="flex gap-2 mt-1">
-                                                            {JSON.parse(trade.analysis.entry_context_json).order_block_reaction && (
-                                                                <Badge variant="outline" className="text-xs">Order Block</Badge>
-                                                            )}
-                                                            {JSON.parse(trade.analysis.entry_context_json).liquidity_sweep && (
-                                                                <Badge variant="outline" className="text-xs">Liquidity Sweep</Badge>
-                                                            )}
-                                                            {JSON.parse(trade.analysis.entry_context_json).fvg_entry && (
-                                                                <Badge variant="outline" className="text-xs">FVG Entry</Badge>
-                                                            )}
+                                                            {(() => {
+                                                                try {
+                                                                    const entryContext = JSON.parse(trade.analysis.entry_context_json);
+                                                                    return (
+                                                                        <>
+                                                                            {entryContext.order_block_reaction && (
+                                                                                <Badge variant="outline" className="text-xs">Order Block</Badge>
+                                                                            )}
+                                                                            {entryContext.liquidity_sweep && (
+                                                                                <Badge variant="outline" className="text-xs">Liquidity Sweep</Badge>
+                                                                            )}
+                                                                            {entryContext.fvg_entry && (
+                                                                                <Badge variant="outline" className="text-xs">FVG Entry</Badge>
+                                                                            )}
+                                                                        </>
+                                                                    );
+                                                                } catch {
+                                                                    return <Badge variant="outline" className="text-xs">Анализ доступен</Badge>;
+                                                                }
+                                                            })()}
                                                         </div>
-                                                    </div>
-                                                    <div className="ml-auto">
-                                                        <Button variant="ghost" size="sm">
-                                                            View Details
-                                                        </Button>
                                                     </div>
                                                 </div>
                                             </div>
                                         )}
-                                    </CardContent>
+                                        </CardContent>
+                                    </Link>
                                 </Card>
                             );
                         })}
                     </div>
+                )}
+
+                {/* Pagination */}
+                {pagination && pagination.last_page && pagination.last_page > 1 && (
+                    <Card>
+                        <CardContent className="flex items-center justify-between py-4">
+                            <div className="text-sm text-muted-foreground">
+                                Показано {pagination.from || 0} - {pagination.to || 0} из {pagination.total || 0} сделок
+                            </div>
+                            <div className="flex items-center gap-2">
+                                <Button
+                                    variant="outline"
+                                    size="sm"
+                                    onClick={() => {
+                                        // TODO: Implement pagination navigation
+                                        console.log('Previous page');
+                                    }}
+                                    disabled={(pagination.current_page || 1) <= 1 || loading}
+                                >
+                                    Назад
+                                </Button>
+                                <div className="text-sm">
+                                    Страница {pagination.current_page || 1} из {pagination.last_page || 1}
+                                </div>
+                                <Button
+                                    variant="outline"
+                                    size="sm"
+                                    onClick={() => {
+                                        // TODO: Implement pagination navigation
+                                        console.log('Next page');
+                                    }}
+                                    disabled={(pagination.current_page || 1) >= (pagination.last_page || 1) || loading}
+                                >
+                                    Вперёд
+                                </Button>
+                            </div>
+                        </CardContent>
+                    </Card>
                 )}
             </div>
         </AppLayout>
