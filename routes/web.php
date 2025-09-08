@@ -4,7 +4,10 @@ use Illuminate\Support\Facades\Route;
 use Inertia\Inertia;
 
 Route::get('/', function () {
-    return Inertia::render('welcome');
+    if (auth()->check()) {
+        return redirect()->route('analysis.index');
+    }
+    return redirect()->route('login');
 })->name('home');
 
 Route::middleware(['auth', 'verified'])->group(function () {
@@ -111,3 +114,11 @@ Route::middleware(['auth', 'verified'])->group(function () {
 
 require __DIR__.'/settings.php';
 require __DIR__.'/auth.php';
+
+// Fallback route - перенаправляет все несуществующие маршруты на главную страницу
+Route::fallback(function () {
+    if (auth()->check()) {
+        return redirect()->route('analysis.index');
+    }
+    return redirect()->route('login');
+});

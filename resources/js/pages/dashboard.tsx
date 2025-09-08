@@ -1,5 +1,5 @@
 import AppLayout from '@/layouts/app-layout';
-import { dashboard } from '@/routes';
+
 import { type BreadcrumbItem } from '@/types';
 import { Head } from '@inertiajs/react';
 import { useDashboard } from '@/hooks/use-dashboard';
@@ -12,7 +12,7 @@ import { cn } from '@/lib/utils';
 const breadcrumbs: BreadcrumbItem[] = [
     {
         title: 'Dashboard',
-        href: dashboard().url,
+        href: route("dashboard"),
     },
 ];
 

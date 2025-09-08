@@ -2,7 +2,7 @@ import Heading from '@/components/heading';
 import { Button } from '@/components/ui/button';
 import { Separator } from '@/components/ui/separator';
 import { cn } from '@/lib/utils';
-import { appearance } from '@/routes';
+
 
 
 import { type NavItem } from '@/types';
@@ -12,17 +12,17 @@ import { type PropsWithChildren } from 'react';
 const sidebarNavItems: NavItem[] = [
     {
         title: 'Profile',
-        href: edit(),
+        href: route("profile.edit"),
         icon: null,
     },
     {
         title: 'Password',
-        href: editPassword(),
+        href: route("password.edit"),
         icon: null,
     },
     {
         title: 'Appearance',
-        href: appearance(),
+        href: route("settings.appearance"),
         icon: null,
     },
 ];
