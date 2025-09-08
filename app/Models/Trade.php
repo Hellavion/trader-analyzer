@@ -41,6 +41,7 @@ class Trade extends Model
         'pnl',
         'unrealized_pnl',
         'fee',
+        'funding_fees',
         'status',
     ];
 
@@ -51,6 +52,7 @@ class Trade extends Model
         'pnl' => 'decimal:8',
         'unrealized_pnl' => 'decimal:8',
         'fee' => 'decimal:8',
+        'funding_fees' => 'decimal:8',
         'entry_time' => 'datetime',
         'exit_time' => 'datetime',
     ];
@@ -87,16 +89,4 @@ class Trade extends Model
         return $this->status === 'open';
     }
 
-    /**
-     * Рассчитывает процент прибыли/убытка
-     */
-    public function getPnlPercentAttribute(): float
-    {
-        if (!$this->exit_price || !$this->entry_price) {
-            return 0;
-        }
-
-        $direction = $this->side === 'buy' ? 1 : -1;
-        return (($this->exit_price - $this->entry_price) / $this->entry_price) * 100 * $direction;
-    }
 }
