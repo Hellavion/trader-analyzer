@@ -191,6 +191,37 @@ class BybitService
     }
 
     /**
+     * Получает список исполненных сделок (executions)
+     */
+     public function getExecutions(string $category = 'linear', ?string $symbol = null, ?Carbon $startTime = null, ?Carbon $endTime = null, int $limit = 50): array
+     {
+         $params = [
+             'category' => $category,
+             'limit' => $limit,
+         ];
+
+         if ($symbol) {
+             $params['symbol'] = $symbol;
+         }
+
+         if ($startTime) {
+             $params['startTime'] = $startTime->getTimestampMs();
+         }
+
+         if ($endTime) {
+             $params['endTime'] = $endTime->getTimestampMs();
+         }
+
+         $response = $this->makePrivateRequest('GET', '/v5/execution/list', $params);
+
+         if ($response['retCode'] !== 0) {
+             throw new \Exception('Failed to fetch executions: ' . $response['retMsg']);
+         }
+
+         return $response['result']['list'] ?? [];
+     }
+
+    /**
      * Получает баланс кошелька
      */
     public function getWalletBalance(string $accountType = 'UNIFIED'): array

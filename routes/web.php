@@ -32,6 +32,12 @@ Route::middleware(['auth', 'verified'])->group(function () {
     Route::get('trades', function () {
         return Inertia::render('trades/index');
     })->name('trades.index');
+    
+    Route::get('trades/{trade}', function ($tradeId) {
+        return Inertia::render('trades/show', [
+            'tradeId' => (int) $tradeId
+        ]);
+    })->name('trades.show');
 
     Route::get('analysis', function () {
         return Inertia::render('analysis/index');
