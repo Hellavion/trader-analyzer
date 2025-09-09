@@ -88,6 +88,10 @@ return [
             'driver' => 'null',
         ],
 
+        'wave' => [
+            'driver' => 'wave',
+        ],
+
     ],
 
 ];

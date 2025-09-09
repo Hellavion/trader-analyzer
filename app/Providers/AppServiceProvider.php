@@ -19,10 +19,7 @@ class AppServiceProvider extends ServiceProvider
      */
     public function boot(): void
     {
-        // Отключаем Wave маршруты на основном сервере (8000)
-        // SSE работает только на отдельном сервере (8001)
-        if (app()->environment('local') && !isset($_ENV['SSE_SERVER_MODE'])) {
-            config(['wave.path' => null]); // Отключаем Wave маршруты
-        }
+        // Wave маршруты включены для local разработки
+        // В продакшене SSE работает через Apache
     }
 }

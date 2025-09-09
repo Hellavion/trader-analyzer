@@ -5,16 +5,18 @@ import { WaveConnector } from 'laravel-wave';
  * Laravel Echo настроен для работы с Laravel Wave (SSE)
  * вместо WebSocket для real-time обновлений
  */
+const waveBaseUrl = document.querySelector('meta[name="wave-base-url"]')?.getAttribute('content') || '';
+
 window.Echo = new Echo({
     broadcaster: WaveConnector,
-    endpoint: '/trader-analyzer/public/wave',
+    endpoint: `${waveBaseUrl}/wave`,
     namespace: 'App.Events',
     auth: {
         headers: {},
     },
-    authEndpoint: '/broadcasting/auth',
+    authEndpoint: `${waveBaseUrl}/broadcasting/auth`,
     csrfToken: document.querySelector('meta[name="csrf-token"]')?.getAttribute('content'),
-    pauseInactive: false,
+    pauseInActive: false,
     debug: true,
 });
 

@@ -7,9 +7,11 @@ use App\Models\Trade;
 use App\Models\TradeAnalysis;
 use App\Models\UserExchange;
 use App\Jobs\SyncBybitTradesJob;
+use App\Services\Exchange\BybitService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Validator;
@@ -626,5 +628,106 @@ class TradeController extends Controller
         }
 
         return $data;
+    }
+
+    /**
+     * Получает данные свечей для графика по сделке
+     */
+    public function getChartData(int $tradeId): JsonResponse
+    {
+        $user = Auth::user();
+
+        try {
+            $trade = Trade::where('user_id', $user->id)
+                ->where('id', $tradeId)
+                ->first();
+
+            if (!$trade) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Trade not found'
+                ], 404);
+            }
+
+            // Определяем период для получения данных
+            $entryTime = $trade->entry_time;
+            $exitTime = $trade->exit_time ?? now();
+            
+            // Расширяем временные рамки для контекста
+            $startTime = $entryTime->copy()->subHours(6);
+            $endTime = $exitTime->copy()->addHours(2);
+
+            // Создаем ключ кэша на основе параметров
+            $cacheKey = "trade_chart_{$tradeId}_{$trade->symbol}_" . 
+                        $startTime->timestamp . "_" . $endTime->timestamp;
+            
+            // Пытаемся получить данные из кэша (кэш на 5 минут)
+            $klineData = Cache::remember($cacheKey, 300, function() use ($trade, $startTime, $endTime) {
+                $bybitService = new BybitService();
+                return $bybitService->getKlineData(
+                    category: 'linear',
+                    symbol: $trade->symbol,
+                    interval: '15', // 15-минутные свечи
+                    start: $startTime,
+                    end: $endTime,
+                    limit: 200
+                );
+            });
+
+            // Преобразуем данные в формат для Lightweight Charts
+            $chartData = [];
+            foreach ($klineData as $candle) {
+                // Bybit возвращает timestamp в миллисекундах (как строку)
+                $timestamp = (int)($candle[0] / 1000); // Преобразуем в секунды и делаем целым числом
+                
+                $chartData[] = [
+                    'time' => $timestamp,
+                    'open' => (float) $candle[1],
+                    'high' => (float) $candle[2],
+                    'low' => (float) $candle[3],
+                    'close' => (float) $candle[4],
+                ];
+            }
+
+            // Сортируем по времени и убираем дубликаты
+            usort($chartData, fn($a, $b) => $a['time'] <=> $b['time']);
+            
+            // Убираем дубликаты времени (оставляем последнее значение для каждого времени)
+            $uniqueData = [];
+            $prevTime = null;
+            foreach ($chartData as $item) {
+                if ($item['time'] !== $prevTime) {
+                    $uniqueData[] = $item;
+                    $prevTime = $item['time'];
+                }
+            }
+            $chartData = $uniqueData;
+
+            return response()->json([
+                'success' => true,
+                'data' => [
+                    'ohlcv' => $chartData,
+                    'trade_info' => [
+                        'entry_price' => (float) $trade->entry_price,
+                        'exit_price' => $trade->exit_price ? (float) $trade->exit_price : null,
+                        'entry_time' => (int) $entryTime->getTimestamp(),
+                        'exit_time' => $trade->exit_time ? (int) $trade->exit_time->getTimestamp() : null,
+                        'side' => $trade->side,
+                    ]
+                ]
+            ]);
+
+        } catch (\Exception $e) {
+            Log::error('Failed to fetch chart data', [
+                'user_id' => $user->id,
+                'trade_id' => $tradeId,
+                'error' => $e->getMessage(),
+            ]);
+
+            return response()->json([
+                'success' => false,
+                'message' => 'Failed to fetch chart data: ' . $e->getMessage()
+            ], 500);
+        }
     }
 }

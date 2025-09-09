@@ -36,6 +36,7 @@ class QuickSyncBybitJob implements ShouldQueue
         $startTime = now()->subDay(); // Только последние 24 часа
         $endTime = now();
 
+
         Log::info('Starting quick Bybit sync', [
             'user_id' => $this->userExchange->user_id,
             'exchange_id' => $this->userExchange->id,
@@ -55,18 +56,8 @@ class QuickSyncBybitJob implements ShouldQueue
             $credentials = $this->userExchange->getApiCredentials();
             $bybitService = new BybitService($credentials['api_key'], $credentials['secret']);
 
-            // Синхронизируем только linear (основная категория для большинства трейдеров)
-            $totalSynced = $this->syncRecentTrades($bybitService, $startTime, $endTime);
-
-            Log::info('About to sync closed positions', ['user_id' => $this->userExchange->user_id]);
-            
-            // Синхронизируем закрытые позиции за последние 24 часа (для анализа Smart Money)
-            $this->syncRecentClosedPositions($bybitService, $startTime, $endTime);
-            
-            Log::info('Closed positions sync method completed', ['user_id' => $this->userExchange->user_id]);
-
-            // Синхронизируем только открытые позиции (быстро)
-            $this->syncCurrentOpenPositions($bybitService);
+            // Синхронизируем только закрытые позиции через closed-pnl API
+            $totalSynced = $this->syncRecentClosedPositions($bybitService, $startTime, $endTime);
 
             // Обновляем время последней синхронизации
             $this->userExchange->updateLastSync();
@@ -89,46 +80,6 @@ class QuickSyncBybitJob implements ShouldQueue
         }
     }
 
-    /**
-     * Синхронизирует последние сделки (только linear)
-     */
-    private function syncRecentTrades(BybitService $bybitService, Carbon $startTime, Carbon $endTime): int
-    {
-        $totalSynced = 0;
-        
-        try {
-            $trades = $bybitService->getTradingHistory(
-                category: 'linear',
-                startTime: $startTime,
-                endTime: $endTime,
-                limit: 100 // Увеличиваем лимит для меньшего количества запросов
-            );
-
-            foreach ($trades as $bybitTrade) {
-                // Пропускаем записи о фандинге и других не-торговых операциях
-                if (($bybitTrade['execType'] ?? '') !== 'Trade') {
-                    continue;
-                }
-                
-                if ($this->syncSingleTrade($bybitTrade)) {
-                    $totalSynced++;
-                }
-            }
-
-            Log::info('Quick sync trades completed', [
-                'user_id' => $this->userExchange->user_id,
-                'total_synced' => $totalSynced,
-            ]);
-
-        } catch (\Exception $e) {
-            Log::warning('Failed to sync recent trades', [
-                'user_id' => $this->userExchange->user_id,
-                'error' => $e->getMessage(),
-            ]);
-        }
-
-        return $totalSynced;
-    }
 
     /**
      * Синхронизирует недавние закрытые позиции (для анализа Smart Money)
@@ -183,161 +134,25 @@ class QuickSyncBybitJob implements ShouldQueue
         return $totalSynced;
     }
 
-    /**
-     * Синхронизирует одну сделку (упрощенная версия)
-     */
-    private function syncSingleTrade(array $bybitTrade): bool
-    {
-        $externalId = $bybitTrade['execId'];
 
-        // Проверяем, не существует ли уже такая сделка
-        $existingTrade = Trade::where('user_id', $this->userExchange->user_id)
-            ->where('exchange', 'bybit')
-            ->where('external_id', $externalId)
-            ->first();
 
-        if ($existingTrade) {
-            return false; // Сделка уже существует
-        }
-
-        // Создаем новую сделку
-        $tradeData = (new BybitService())->transformTradeData($bybitTrade);
-        $tradeData['user_id'] = $this->userExchange->user_id;
-
-        try {
-            $trade = Trade::create($tradeData);
-            
-            // Отправляем событие о новой сделке
-            \App\Events\RealTradeUpdate::dispatch($tradeData);
-            
-            Log::debug('Created new trade from quick sync', [
-                'user_id' => $this->userExchange->user_id,
-                'external_id' => $externalId,
-                'symbol' => $tradeData['symbol'],
-                'size' => $tradeData['size'],
-            ]);
-
-            return true;
-
-        } catch (\Exception $e) {
-            Log::error('Failed to create trade from quick sync', [
-                'user_id' => $this->userExchange->user_id,
-                'external_id' => $externalId,
-                'error' => $e->getMessage(),
-                'bybit_trade' => $bybitTrade,
-            ]);
-
-            return false;
-        }
-    }
 
     /**
-     * Синхронизирует открытые позиции (только linear)
-     */
-    private function syncCurrentOpenPositions(BybitService $bybitService): void
-    {
-        try {
-            $positions = $bybitService->getPositions('linear');
-
-            foreach ($positions as $bybitPosition) {
-                // Пропускаем позиции с нулевым размером
-                if (abs((float) $bybitPosition['size']) == 0) {
-                    continue;
-                }
-
-                $this->syncSingleOpenPosition($bybitPosition);
-            }
-
-            Log::info('Quick sync open positions completed', [
-                'user_id' => $this->userExchange->user_id,
-            ]);
-
-        } catch (\Exception $e) {
-            Log::warning('Failed to sync current open positions', [
-                'user_id' => $this->userExchange->user_id,
-                'error' => $e->getMessage(),
-            ]);
-        }
-    }
-
-    /**
-     * Синхронизирует одну открытую позицию
-     */
-    private function syncSingleOpenPosition(array $bybitPosition): bool
-    {
-        $symbol = $bybitPosition['symbol'];
-        $size = abs((float) $bybitPosition['size']);
-        $side = (float) $bybitPosition['size'] > 0 ? 'buy' : 'sell';
-
-        // Проверяем, не существует ли уже такая открытая позиция
-        $existingPosition = Trade::where('user_id', $this->userExchange->user_id)
-            ->where('exchange', 'bybit')
-            ->where('symbol', $symbol)
-            ->where('status', 'open')
-            ->first();
-
-        if ($existingPosition) {
-            // Обновляем существующую позицию
-            $existingPosition->update([
-                'size' => $size,
-                'side' => $side,
-                'entry_price' => (float) $bybitPosition['avgPrice'],
-                'unrealized_pnl' => (float) $bybitPosition['unrealisedPnl'],
-                'updated_at' => now(),
-            ]);
-
-            return true;
-        }
-
-        // Создаем новую открытую позицию
-        try {
-            Trade::create([
-                'user_id' => $this->userExchange->user_id,
-                'exchange' => 'bybit',
-                'external_id' => 'open_' . $symbol . '_' . time(),
-                'symbol' => $symbol,
-                'side' => $side,
-                'size' => $size,
-                'entry_price' => (float) $bybitPosition['avgPrice'],
-                'entry_time' => now(),
-                'status' => 'open',
-                'unrealized_pnl' => (float) $bybitPosition['unrealisedPnl'],
-                'fee' => 0,
-                'created_at' => now(),
-                'updated_at' => now(),
-            ]);
-
-            return true;
-
-        } catch (\Exception $e) {
-            Log::error('Failed to create quick sync open position', [
-                'user_id' => $this->userExchange->user_id,
-                'symbol' => $symbol,
-                'error' => $e->getMessage(),
-            ]);
-
-            return false;
-        }
-    }
-
-    /**
-     * Синхронизирует одну закрытую позицию
+     * Создает закрытую сделку из closed-pnl данных
      */
     private function syncClosedPosition(array $bybitPnL): bool
     {
         $symbol = $bybitPnL['symbol'];
-        $orderId = $bybitPnL['orderId'] ?? null;
-        $closeTime = Carbon::createFromTimestampMs((int) $bybitPnL['updatedTime']);
+        $orderId = $bybitPnL['orderId'];
         
-        // Ищем открытую позицию для этого символа
-        $openPosition = Trade::where('user_id', $this->userExchange->user_id)
+        // Проверяем, не существует ли уже такая закрытая сделка
+        $existingTrade = Trade::where('user_id', $this->userExchange->user_id)
             ->where('exchange', 'bybit')
-            ->where('symbol', $symbol)
-            ->where('status', 'open')
+            ->where('external_id', $orderId)
             ->first();
             
-        if (!$openPosition) {
-            Log::debug('No open position found for closed PnL', [
+        if ($existingTrade) {
+            Log::debug('Trade already exists for order', [
                 'user_id' => $this->userExchange->user_id,
                 'symbol' => $symbol,
                 'order_id' => $orderId,
@@ -346,23 +161,31 @@ class QuickSyncBybitJob implements ShouldQueue
         }
         
         try {
-            // Обновляем позицию как закрытую с данными для Smart Money анализа
-            $openPosition->update([
-                'status' => 'closed',
+            // Создаем закрытую сделку с полными данными из closed-pnl
+            $trade = Trade::create([
+                'user_id' => $this->userExchange->user_id,
+                'exchange' => 'bybit',
+                'external_id' => $orderId,
+                'symbol' => $symbol,
+                'side' => strtolower($bybitPnL['side']),
+                'size' => abs((float) $bybitPnL['closedSize']),
+                'entry_price' => (float) $bybitPnL['avgEntryPrice'],
+                'entry_time' => Carbon::createFromTimestampMs((int) $bybitPnL['createdTime']),
                 'exit_price' => (float) $bybitPnL['avgExitPrice'],
-                'exit_time' => $closeTime,
+                'exit_time' => Carbon::createFromTimestampMs((int) $bybitPnL['updatedTime']),
+                'status' => 'closed',
                 'pnl' => (float) $bybitPnL['closedPnl'],
-                'fee' => (float) ($bybitPnL['cumExecFee'] ?? 0),
-                'updated_at' => now(),
+                'fee' => (float) $bybitPnL['openFee'] + (float) $bybitPnL['closeFee'],
             ]);
             
-            // Отправляем событие об обновлении сделки
-            \App\Events\RealTradeUpdate::dispatch($openPosition->toArray());
+            // Отправляем real-time событие на фронт
+            \App\Events\RealTradeUpdate::dispatch($trade->toArray());
             
-            Log::debug('Closed position synced', [
+            Log::debug('Created closed trade from closed-pnl', [
                 'user_id' => $this->userExchange->user_id,
-                'trade_id' => $openPosition->id,
+                'trade_id' => $trade->id,
                 'symbol' => $symbol,
+                'entry_price' => $bybitPnL['avgEntryPrice'],
                 'exit_price' => $bybitPnL['avgExitPrice'],
                 'pnl' => $bybitPnL['closedPnl'],
             ]);
@@ -370,7 +193,7 @@ class QuickSyncBybitJob implements ShouldQueue
             return true;
             
         } catch (\Exception $e) {
-            Log::error('Failed to sync closed position', [
+            Log::error('Failed to create closed trade from closed-pnl', [
                 'user_id' => $this->userExchange->user_id,
                 'symbol' => $symbol,
                 'order_id' => $orderId,

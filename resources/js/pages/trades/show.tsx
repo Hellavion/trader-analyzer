@@ -7,6 +7,8 @@ import { Head, Link } from '@inertiajs/react';
 import { ArrowLeft, TrendingDown, TrendingUp, Clock, DollarSign, BarChart3, Target, AlertCircle, Loader2 } from 'lucide-react';
 import { useState, useEffect } from 'react';
 import { Alert, AlertDescription } from '@/components/ui/alert';
+import { api } from '@/lib/api';
+import TradingChart from '@/components/charts/TradingChart';
 
 interface TradeWithAnalysis extends Trade {
     analysis?: TradeAnalysis;
@@ -41,23 +43,12 @@ export default function TradeShow({ tradeId }: Props) {
             setLoading(true);
             setError(null);
 
-            const response = await fetch(`/api/trades/${tradeId}`, {
-                headers: {
-                    'Accept': 'application/json',
-                    'X-Requested-With': 'XMLHttpRequest',
-                },
-            });
+            const response = await api.getTrade(tradeId);
 
-            if (!response.ok) {
-                throw new Error(`Ошибка ${response.status}: ${response.statusText}`);
-            }
-
-            const data = await response.json();
-
-            if (data.success) {
-                setTrade(data.data);
+            if (response.success) {
+                setTrade(response.data);
             } else {
-                throw new Error(data.message || 'Не удалось загрузить данные сделки');
+                throw new Error(response.message || 'Не удалось загрузить данные сделки');
             }
         } catch (err) {
             setError(err instanceof Error ? err.message : 'Произошла ошибка');
@@ -215,6 +206,27 @@ export default function TradeShow({ tradeId }: Props) {
                 <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
                     {/* Main Trade Info */}
                     <div className="lg:col-span-2 space-y-6">
+                        {/* Price Chart */}
+                        <Card>
+                            <CardHeader>
+                                <CardTitle className="flex items-center gap-2">
+                                    <BarChart3 className="h-5 w-5" />
+                                    График цены
+                                </CardTitle>
+                            </CardHeader>
+                            <CardContent>
+                                <TradingChart
+                                    tradeId={trade.id}
+                                    symbol={trade.symbol}
+                                    entryPrice={trade.entry_price}
+                                    exitPrice={trade.exit_price}
+                                    entryTime={trade.entry_time}
+                                    exitTime={trade.exit_time}
+                                    side={trade.side}
+                                />
+                            </CardContent>
+                        </Card>
+
                         {/* Trade Details */}
                         <Card>
                             <CardHeader>

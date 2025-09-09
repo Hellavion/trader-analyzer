@@ -7,6 +7,7 @@ use App\Models\Trade;
 use App\Models\Execution;
 use App\Models\UserExchange;
 use App\Services\Exchange\BybitService;
+use App\Events\TradeExecuted;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
@@ -103,11 +104,26 @@ class SyncBybitTradesJob implements ShouldQueue
                 $synced++;
             }
             
+            // Обновляем время последнего execution для этого подключения
+            if (!empty($executions)) {
+                $latestExecutionTime = max(array_column($executions, 'execTime'));
+                $this->userExchange->update([
+                    'last_execution_time' => Carbon::createFromTimestampMs($latestExecutionTime),
+                    'last_sync_at' => now(),
+                ]);
+            } else {
+                // Если executions не было, просто обновляем время синхронизации
+                $this->userExchange->update(['last_sync_at' => now()]);
+            }
+
             Log::info('Bybit synchronization completed', [
                 'user_id' => $this->userExchange->user_id,
                 'total_processed' => $synced,
                 'executions_saved' => $executionsSaved,
                 'trades_aggregated' => $tradesAggregated,
+                'latest_execution_time' => !empty($executions) 
+                    ? Carbon::createFromTimestampMs(max(array_column($executions, 'execTime')))->format('Y-m-d H:i:s')
+                    : 'no executions',
             ]);
 
         } catch (\Exception $e) {
@@ -221,11 +237,15 @@ class SyncBybitTradesJob implements ShouldQueue
                 'pnl' => $this->calculatePnL($openTrade, $execution),
             ]);
             
+            // Отправляем real-time событие о закрытии сделки
+            broadcast(new TradeExecuted($openTrade->fresh()));
+            
             Log::debug('Closed position', [
                 'trade_id' => $openTrade->id,
                 'symbol' => $execution->symbol,
                 'closed_size' => $closedSize,
                 'exit_price' => $execution->price,
+                'pnl' => $openTrade->pnl,
             ]);
         } else {
             Log::warning('No open trade found to close', [
@@ -266,6 +286,9 @@ class SyncBybitTradesJob implements ShouldQueue
                 'fee' => $existingTrade->fee + $execution->fee,
             ]);
 
+            // Отправляем real-time событие об обновлении сделки
+            broadcast(new TradeExecuted($existingTrade->fresh()));
+
             Log::debug('Aggregated into existing trade', [
                 'trade_id' => $existingTrade->id,
                 'new_size' => $totalSize,
@@ -290,6 +313,9 @@ class SyncBybitTradesJob implements ShouldQueue
                     'closed_size' => 0,
                 ]),
             ]);
+
+            // Отправляем real-time событие о новой сделке
+            broadcast(new TradeExecuted($newTrade));
 
             Log::debug('Created new trade', [
                 'trade_id' => $newTrade->id,
