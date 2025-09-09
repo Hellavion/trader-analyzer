@@ -16,6 +16,7 @@ use Carbon\Carbon;
  * @property string $api_credentials_encrypted
  * @property bool $is_active
  * @property Carbon $last_sync_at
+ * @property Carbon $last_execution_time
  * @property array $sync_settings
  */
 class UserExchange extends Model
@@ -26,12 +27,14 @@ class UserExchange extends Model
         'api_credentials_encrypted',
         'is_active',
         'last_sync_at',
+        'last_execution_time',
         'sync_settings',
     ];
 
     protected $casts = [
         'is_active' => 'boolean',
         'last_sync_at' => 'datetime',
+        'last_execution_time' => 'datetime',
         'sync_settings' => 'array',
     ];
 

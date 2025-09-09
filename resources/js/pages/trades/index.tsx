@@ -5,11 +5,12 @@ import { Input } from '@/components/ui/input';
 import { PlaceholderPattern } from '@/components/ui/placeholder-pattern';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import AppLayout from '@/layouts/app-layout';
-import { type BreadcrumbItem, type Trade, type TradeAnalysis } from '@/types';
-import { Head, Link } from '@inertiajs/react';
+import { type BreadcrumbItem, type Trade, type TradeAnalysis, type SharedData } from '@/types';
+import { Head, Link, usePage } from '@inertiajs/react';
 import { Calendar, Search, TrendingDown, TrendingUp, RefreshCw, AlertCircle, Loader2 } from 'lucide-react';
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { useTrades } from '@/hooks/use-trades';
+import { useRealtimeTrades } from '@/hooks/use-realtime';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 
 const breadcrumbs: BreadcrumbItem[] = [
@@ -36,6 +37,7 @@ interface Props {
 }
 
 export default function TradesIndex({ filters: initialFilters }: Props) {
+    const { auth } = usePage<SharedData>().props;
     const [searchQuery, setSearchQuery] = useState(initialFilters?.symbol || '');
     const [selectedExchange, setSelectedExchange] = useState<string>(initialFilters?.exchange || 'all');
     const [selectedSide, setSelectedSide] = useState<string>(initialFilters?.side || 'all');
@@ -53,8 +55,43 @@ export default function TradesIndex({ filters: initialFilters }: Props) {
     // Получаем данные через API
     const { trades, loading, error, refetch, syncTrades, isSyncing, pagination } = useTrades(apiFilters);
     
-    // Фильтрация теперь происходит на сервере, поэтому используем trades напрямую
-    const filteredTrades = trades || [];
+    // Получаем real-time обновления сделок
+    const { trades: realtimeTrades, lastTradeReceived } = useRealtimeTrades(auth.user.id);
+    
+    // Объединяем существующие сделки с новыми real-time обновлениями
+    const [allTrades, setAllTrades] = useState<TradeWithAnalysis[]>(trades || []);
+    
+    // Обновляем список при получении данных из API
+    useEffect(() => {
+        if (trades) {
+            setAllTrades(trades);
+        }
+    }, [trades]);
+    
+    // Обновляем список при получении real-time данных
+    useEffect(() => {
+        if (realtimeTrades.length > 0 && trades) {
+            setAllTrades(prev => {
+                const updated = [...prev];
+                
+                realtimeTrades.forEach(realtimeTrade => {
+                    const existingIndex = updated.findIndex(t => t.id === realtimeTrade.id);
+                    if (existingIndex >= 0) {
+                        // Обновляем существующую сделку
+                        updated[existingIndex] = { ...updated[existingIndex], ...realtimeTrade };
+                    } else {
+                        // Добавляем новую сделку в начало списка
+                        updated.unshift(realtimeTrade);
+                    }
+                });
+                
+                return updated;
+            });
+        }
+    }, [realtimeTrades, trades]);
+    
+    // Фильтрация теперь происходит на сервере, поэтому используем allTrades
+    const filteredTrades = allTrades;
 
     const getScoreColor = (score: number) => {
         if (score >= 8) return 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200';
@@ -81,7 +118,18 @@ export default function TradesIndex({ filters: initialFilters }: Props) {
             <div className="flex h-full flex-1 flex-col gap-6 overflow-x-auto p-6">
                 <div className="flex items-center justify-between">
                     <div>
-                        <h1 className="text-2xl font-bold tracking-tight">История сделок</h1>
+                        <div className="flex items-center gap-3">
+                            <h1 className="text-2xl font-bold tracking-tight">История сделок</h1>
+                            <div className="flex items-center gap-2">
+                                <div className="h-2 w-2 rounded-full bg-green-500 animate-pulse"></div>
+                                <span className="text-xs text-muted-foreground">Real-time</span>
+                            </div>
+                            {lastTradeReceived && (
+                                <div className="px-2 py-1 text-xs bg-blue-100 text-blue-800 rounded-md dark:bg-blue-900 dark:text-blue-200">
+                                    Новая: {lastTradeReceived.symbol}
+                                </div>
+                            )}
+                        </div>
                         <p className="text-muted-foreground">
                             Анализируйте свою торговую эффективность с помощью Smart Money инсайтов
                         </p>

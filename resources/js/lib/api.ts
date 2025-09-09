@@ -184,6 +184,30 @@ class ApiClient {
         const response = await this.client.get('/exchanges');
         return response.data;
     }
+
+    /**
+     * Получает данные графика для сделки
+     */
+    async getTradeChartData(tradeId: number): Promise<ApiResponse<{
+        ohlcv: Array<{
+            time: number;
+            open: number;
+            high: number;
+            low: number;
+            close: number;
+            volume: number;
+        }>;
+        trade_info: {
+            entry_price: number;
+            exit_price: number | null;
+            entry_time: number;
+            exit_time: number | null;
+            side: 'buy' | 'sell';
+        };
+    }>> {
+        const response = await this.client.get(`/trades/${tradeId}/chart`);
+        return response.data;
+    }
 }
 
 // Создаём singleton экземпляр

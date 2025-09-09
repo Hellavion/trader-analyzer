@@ -18,6 +18,7 @@ class BybitWebSocketService
     private string $wsUrl = 'wss://stream.bybit.com/v5/private';
     private int $reconnectAttempts = 0;
     private int $maxReconnectAttempts = 5;
+    private array $positionCache = []; // Кэш для хранения данных позиций
 
     public function __construct(UserExchange $userExchange)
     {
@@ -47,10 +48,10 @@ class BybitWebSocketService
                 $authMessage = $this->buildAuthMessage();
                 $conn->send(json_encode($authMessage));
 
-                // Подписка на события выполнения сделок (execution) - это то что нам нужно
+                // Подписка на события выполнения сделок (execution) и позиции (position)
                 $subscribeMessage = [
                     'op' => 'subscribe', 
-                    'args' => ['execution']
+                    'args' => ['execution', 'position']
                 ];
                 $conn->send(json_encode($subscribeMessage));
 
@@ -146,20 +147,27 @@ class BybitWebSocketService
         }
 
         foreach ($data['data'] as $position) {
-            // Логируем все позиции для отладки
-            Log::info('Position update received', [
-                'user_id' => $this->userExchange->user_id,
-                'symbol' => $position['symbol'] ?? 'unknown',
-                'side' => $position['side'] ?? 'empty',
-                'size' => $position['size'] ?? '0',
-                'cum_realised_pnl' => $position['cumRealisedPnl'] ?? 'missing',
-                'cur_realised_pnl' => $position['curRealisedPnl'] ?? 'missing',
-            ]);
+            $symbol = $position['symbol'] ?? 'unknown';
+            $size = $position['size'] ?? '0';
+            $side = $position['side'] ?? '';
+            
+            // Кэшируем данные позиций (и открытых, и закрытых)
+            $this->positionCache[$symbol] = [
+                'side' => $side,
+                'size' => $size,
+                'entryPrice' => $position['entryPrice'] ?? '0',
+                'updatedTime' => $position['updatedTime'] ?? time() * 1000,
+                'cumRealisedPnl' => $position['cumRealisedPnl'] ?? '0',
+                'curRealisedPnl' => $position['curRealisedPnl'] ?? '0',
+            ];
 
-            // Обрабатываем закрытые позиции: size=0 И есть изменение в PnL
-            if (($position['size'] ?? '0') === '0' && !empty($position['curRealisedPnl']) && $position['curRealisedPnl'] !== '0') {
-                $this->processClosedPosition($position);
-            }
+            Log::info('Position cached', [
+                'user_id' => $this->userExchange->user_id,
+                'symbol' => $symbol,
+                'side' => $side,
+                'size' => $size,
+                'entry_price' => $position['entryPrice'] ?? '0',
+            ]);
         }
     }
 
@@ -189,16 +197,55 @@ class BybitWebSocketService
 
     private function processExecutionTrade(array $execution): void
     {
+        $symbol = $execution['symbol'];
+        
+        // Получаем данные позиции из кэша
+        $positionData = $this->positionCache[$symbol] ?? null;
+        
+        if (!$positionData) {
+            Log::warning('No position data found in cache for execution', [
+                'user_id' => $this->userExchange->user_id,
+                'symbol' => $symbol,
+                'exec_id' => $execution['execId'] ?? 'unknown',
+            ]);
+            return;
+        }
+        
+        // Определяем направление позиции и цену входа из position данных
+        $positionSide = strtolower($positionData['side']);
+        $entryPrice = (float) $positionData['entryPrice'];
+        
+        // Если side пустой в position, пытаемся определить по execution
+        if (empty($positionSide)) {
+            // Если execution.side = "Sell" и closedSize > 0, значит это была long позиция
+            $positionSide = strtolower($execution['side']) === 'sell' ? 'buy' : 'sell';
+            
+            // Если нет entryPrice в position, вычисляем из PnL
+            if ($entryPrice == 0) {
+                $exitPrice = (float) $execution['execPrice'];
+                $pnl = (float) ($execution['execPnl'] ?? 0);
+                $size = (float) $execution['closedSize'];
+                
+                if ($size > 0) {
+                    if ($positionSide === 'buy') { // long позиция
+                        $entryPrice = $exitPrice + (abs($pnl) / $size);
+                    } else { // short позиция
+                        $entryPrice = $exitPrice - (abs($pnl) / $size);
+                    }
+                }
+            }
+        }
+        
         $tradeData = [
             'user_id' => $this->userExchange->user_id,
             'exchange' => 'bybit',
             'external_id' => 'exec_' . ($execution['execId'] ?? 'ws_' . time()),
-            'symbol' => $execution['symbol'],
-            'side' => strtolower($execution['side']),
-            'size' => (float) $execution['closedSize'], // Используем closedSize
-            'entry_price' => 0,
+            'symbol' => $symbol,
+            'side' => $positionSide, // Используем направление позиции, а не execution
+            'size' => (float) $execution['closedSize'],
+            'entry_price' => $entryPrice, // Из position данных
             'exit_price' => (float) $execution['execPrice'],
-            'pnl' => (float) ($execution['execPnl'] ?? 0), // Используем execPnl
+            'pnl' => (float) ($execution['execPnl'] ?? 0),
             'fee' => (float) ($execution['execFee'] ?? 0),
             'entry_time' => Carbon::now()->subMinutes(1), // Примерно
             'exit_time' => Carbon::createFromTimestampMs($execution['execTime']),
@@ -208,12 +255,15 @@ class BybitWebSocketService
 
         $trade = Trade::create($tradeData);
         
-        Log::info('New execution trade saved', [
+        Log::info('New execution trade saved with position data', [
             'user_id' => $this->userExchange->user_id,
             'trade_id' => $trade->id,
             'symbol' => $trade->symbol,
-            'side' => $trade->side,
+            'position_side' => $positionSide,
+            'entry_price' => $entryPrice,
+            'exit_price' => $trade->exit_price,
             'size' => $trade->size,
+            'pnl' => $trade->pnl,
         ]);
 
         Log::info('Broadcasting RealTradeUpdate event', ['trade_id' => $trade->id]);

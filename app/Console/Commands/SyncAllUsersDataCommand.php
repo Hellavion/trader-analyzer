@@ -3,7 +3,7 @@
 namespace App\Console\Commands;
 
 use App\Models\UserExchange;
-use App\Jobs\SyncBybitTradesJob;
+use App\Jobs\QuickSyncBybitJob;
 use App\Jobs\CollectBybitMarketDataJob;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\Log;
@@ -108,9 +108,8 @@ class SyncAllUsersDataCommand extends Command
     {
         switch ($exchange->exchange) {
             case 'bybit':
-                SyncBybitTradesJob::dispatch($exchange)
-                    ->onQueue('sync')
-                    ->delay(now()->addSeconds(rand(5, 30))); // Рандомная задержка
+                QuickSyncBybitJob::dispatch($exchange)
+                    ->onQueue('sync');
                 break;
                 
             case 'mexc':
@@ -122,6 +121,7 @@ class SyncAllUsersDataCommand extends Command
                 throw new \Exception("Unknown exchange: {$exchange->exchange}");
         }
     }
+
 
     /**
      * Запускает сбор рыночных данных после синхронизации

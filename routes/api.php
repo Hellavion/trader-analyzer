@@ -41,6 +41,7 @@ Route::middleware(['auth', 'web'])->group(function () {
         Route::post('/sync', [TradeController::class, 'syncAll']); // Sync all exchanges
         Route::post('/sync/{exchange}', [TradeController::class, 'syncExchange']); // Sync specific exchange
         Route::get('/{tradeId}', [TradeController::class, 'show']); // Get specific trade details
+        Route::get('/{tradeId}/chart', [TradeController::class, 'getChartData']); // Get chart data for trade
     });
     
     // Analysis & Market Data Routes

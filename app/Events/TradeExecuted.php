@@ -23,6 +23,8 @@ class TradeExecuted implements ShouldBroadcast
     public function broadcastOn(): array
     {
         return [
+            // Временно добавляем публичный канал для отладки
+            new \Illuminate\Broadcasting\Channel('live-trades'),
             new PrivateChannel("user.{$this->trade->user_id}.trades"),
         ];
     }
